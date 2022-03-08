@@ -1,0 +1,7 @@
+name: FlanSnowballFight
+version: 1.0.0
+main: SnowballFight
+api-version: 1.18
+commands:
+  sbf:
+    description: SnowballFight Main Command
