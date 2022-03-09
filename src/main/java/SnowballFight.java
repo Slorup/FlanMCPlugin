@@ -11,12 +11,16 @@ import org.bukkit.entity.Snowball;
 import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scoreboard.*;
 
 import java.io.File;
 import java.io.IOException;
@@ -45,7 +49,6 @@ public class SnowballFight extends JavaPlugin implements Listener {
         pm.registerEvents(this, this);
         pm.registerEvents(nsf, this);
 
-        SnowballConfig.get().addDefault("global_spawn", "(0;0;120)");
         SnowballConfig.get().options().copyDefaults(true);
         SnowballConfig.save();
     }
@@ -151,7 +154,43 @@ class NormalSnowballFight extends SubCommand implements Listener{
     public boolean isOngoing = false;
     public ArrayList<PlayerStats> playersStats = new ArrayList<>();
     public World world;
-    TimerTask task;
+    public int killsToWin = 30;
+    ArrayList<Triple<Integer, Integer, Integer>> spawnLocs = new ArrayList<>();
+    Random rnd = new Random();
+    //TimerTask task;
+
+    public void createBoard(Player p){
+        ScoreboardManager manager = Bukkit.getScoreboardManager();
+        Scoreboard board = manager.getNewScoreboard();
+
+        Objective obj = board.registerNewObjective("sbf_kills", "dummy", ChatColor.RED + "SBF Kills");
+        obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+        Score score = obj.getScore(ChatColor.BLUE + "=-=-=-=-=-=-=-=");
+        score.setScore(999);
+
+        p.setScoreboard(board);
+    }
+
+    public void updateBoardForAllPlayers(){ //TODO: Super duper ineffecient but it works (maybe?)
+        Collections.sort(playersStats, new Comparator<PlayerStats>() {
+            @Override
+            public int compare(PlayerStats o1, PlayerStats o2) {
+                if(o1.kills == o2.kills) return 0;
+                return o1.kills < o2.kills ? 1 : -1;
+            }
+        });
+        if(playersStats.size() == 0) return;
+
+        Scoreboard sb = playersStats.get(0).player.getScoreboard();
+
+        for (PlayerStats ps : playersStats){
+            sb.getObjective("sbf_kills").getScore(playersStats.get(0).player.getDisplayName()).setScore(playersStats.get(0).kills);
+        }
+
+        for (PlayerStats ps : playersStats){
+            ps.player.setScoreboard(sb);
+        }
+    }
 
     @Override
     void onCommand(Player player, Command cmd, String[] args) {
@@ -185,89 +224,124 @@ class NormalSnowballFight extends SubCommand implements Listener{
                 player.sendMessage(ChatColor.RED + "SnowballFight is already in progress!");
                 return;
             }
+            isOngoing = true;
 
             playersStats = new ArrayList<>();
             world = player.getWorld();
+            spawnLocs = new ArrayList<>();
 
-            Random rnd = new Random();
             ArrayList<String> spawns = StringParsing.configStringToList(SnowballConfig.get().getString(config_prefix + "spawns"));
-            ArrayList<Triple<Integer, Integer, Integer>> spawnLocs = new ArrayList<>();
             for (String s : spawns){
                 spawnLocs.add(StringParsing.getCoordsFromConfigLocation(s));
             }
-            int locs = spawnLocs.size();
-
 
             for (Player p : Bukkit.getOnlinePlayers()){
                 playersStats.add(new PlayerStats(p));
-                int num = rnd.nextInt(locs);
-                Triple<Integer, Integer, Integer> tpLoc = spawnLocs.get(num);
-                p.teleport(new Location(player.getWorld(), tpLoc.first, tpLoc.second, tpLoc.third));
-                p.setHealth(20);
-                p.setSaturation(10);
+                Triple<Integer, Integer, Integer> spawnLoc = getRandomFightSpawn(p);
                 p.getInventory().clear();
-                p.getInventory().addItem(new ItemStack(Material.SNOWBALL, 1000));
+                p.getInventory().addItem(new ItemStack(Material.SNOWBALL, 2000));
+                p.setHealth(20.0);
+                p.teleport(new Location(p.getWorld(), spawnLoc.first, spawnLoc.second, spawnLoc.third));
+
                 p.sendMessage(ChatColor.YELLOW + "Snowball fight has started!");
             }
 
-            SnowballConfig.get().set("snowball_damage", 5); //TODO: HERE
-            isOngoing = true;
-            task = new TimerTask() {
-                @Override
-                public void run() {
-                    System.out.println("SnowballFight performed on: " + new Date() + "n" +
-                            "Thread's name: " + Thread.currentThread().getName());
-                    stopFight();
-                }
-            };
+            for(PlayerStats ps : playersStats)
+                createBoard(ps.player);
 
-            Timer timer = new Timer();
 
-            int matchLength = 10; //Seconds
-
-            if (args.length > 1){
-                try{
-                    matchLength = Integer.parseInt(args[1]);
-                }catch(NumberFormatException e){
-
-                }
-            }
-            timer.schedule(task, matchLength * 1000);
+            //TODO: Change to timer instead of x kills?
+//            task = new TimerTask() {
+//                @Override
+//                public void run() {
+//                    System.out.println("SnowballFight performed on: " + new Date() + "n" +
+//                            "Thread's name: " + Thread.currentThread().getName());
+//                    stopFight();
+//                }
+//            };
+//
+//            Timer timer = new Timer();
+//
+//            int matchLength = 10; //Seconds
+//
+//            if (args.length > 1){
+//                try{
+//                    matchLength = Integer.parseInt(args[1]);
+//                }catch(NumberFormatException e){
+//
+//                }
+//            }
+//            timer.schedule(task, matchLength * 1000);
+            return;
         }
 
         if(Objects.equals(args[0], "stop")){
-            if(task != null) task.cancel();
+            //if(task != null) task.cancel();
             stopFight();
+            return;
         }
+
+        //TODO: Delete spawn
+    }
+
+//    public Triple<Integer, Integer, Integer> tpPlayerToSpawnLocation(Player p){
+//        Triple<Integer, Integer, Integer> spawnLoc;
+//
+//        if(isOngoing){
+//            int num = rnd.nextInt(spawnLocs.size());
+//            spawnLoc = spawnLocs.get(num);
+//            p.getInventory().clear();
+//            p.getInventory().addItem(new ItemStack(Material.SNOWBALL, 2000));
+//            p.setHealth(20.0);
+//        }else{
+//            String global_spawn = SnowballConfig.get().getString("global_spawn");
+//            spawnLoc = StringParsing.getCoordsFromConfigLocation(global_spawn);
+//        }
+//        return spawnLoc;
+//    }
+
+    public Triple<Integer, Integer, Integer> getRandomFightSpawn(Player p){
+        int num = rnd.nextInt(spawnLocs.size());
+        return spawnLocs.get(num);
+    }
+
+    @EventHandler
+    public void onBlockBreak(BlockBreakEvent e){
+        if(!e.getPlayer().isOp())
+            e.setCancelled(true); //Let's just disable all block breaking on the server! :)
     }
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent e){
+        e.getDrops().clear();
+        if(!isOngoing) return;
+
+        updateBoardForAllPlayers();
+
         Player killed = e.getEntity();
         Player killer = killed.getKiller();
-        if(killer == null) return; //TODO: Add death
-
-        if(killer == killed) return;
+        Boolean skipKiller = killer == null || killer == killed;
+        PlayerStats winner = null;
 
         for (PlayerStats ps : playersStats){
             if(ps.player.getDisplayName().equals(killed.getDisplayName())){
                 ps.deaths++;
             }
 
-            if(ps.player.getDisplayName().equals(killer.getDisplayName())){
+            if(!skipKiller && ps.player.getDisplayName().equals(killer.getDisplayName())){
                 ps.kills++;
+                if(ps.kills == killsToWin) winner = ps;
             }
         }
+
+        if(winner != null)
+            stopFight();
     }
 
     public void stopFight(){
         if(!isOngoing) return;
-        //TODO: Spawn points!
-        //TODO: Leaderboards!
         //TODO: Better tiebreaker!
-        //TODO: Give snowballs on throw!
-        //TODO: Block protection
-        //TODO: TimerTask is broken - Replace with x points to win?
+        //TODO: Give snowballs on throw! Not important
         Collections.sort(playersStats, new Comparator<PlayerStats>() {
             @Override
             public int compare(PlayerStats o1, PlayerStats o2) {
@@ -287,6 +361,22 @@ class NormalSnowballFight extends SubCommand implements Listener{
                 ps.player.sendMessage(ChatColor.YELLOW + String.format("2nd place (%d kills): %s ", second.kills, second.player.getDisplayName()));
                 ps.player.sendMessage(ChatColor.YELLOW + String.format("3rd place (%d kills): %s ", third.kills, third.player.getDisplayName()));
             }
+        }else if(playersStats.size() >= 2){ //TODO: Quick spaghetti for debugging. Remove later
+            PlayerStats first = playersStats.get(0);
+            PlayerStats second = playersStats.get(1);
+
+            for (PlayerStats ps : playersStats){
+                ps.player.sendMessage(ChatColor.YELLOW + "Time's up!");
+                ps.player.sendMessage(ChatColor.YELLOW + String.format("1st place (%d kills): %s ", first.kills, first.player.getDisplayName()));
+                ps.player.sendMessage(ChatColor.YELLOW + String.format("2nd place (%d kills): %s ", second.kills, second.player.getDisplayName()));
+            }
+        }else if(playersStats.size() >= 1){
+            PlayerStats first = playersStats.get(0);
+
+            for (PlayerStats ps : playersStats){
+                ps.player.sendMessage(ChatColor.YELLOW + "Time's up!");
+                ps.player.sendMessage(ChatColor.YELLOW + String.format("1st place (%d kills): %s ", first.kills, first.player.getDisplayName()));
+            }
         }
 
         String global_spawn = SnowballConfig.get().getString("global_spawn");
@@ -296,6 +386,21 @@ class NormalSnowballFight extends SubCommand implements Listener{
         }
 
         isOngoing = false;
+    }
+
+    @EventHandler
+    public void onPlayerRespawn(PlayerRespawnEvent e){
+        Player p = e.getPlayer();
+
+        if(isOngoing){
+            Triple<Integer, Integer, Integer> spawnLoc = getRandomFightSpawn(p);
+            p.getInventory().addItem(new ItemStack(Material.SNOWBALL, 2000));
+            e.setRespawnLocation(new Location(p.getWorld(), spawnLoc.first, spawnLoc.second, spawnLoc.third));
+        }else{
+            String global_spawn = SnowballConfig.get().getString("global_spawn");
+            Triple<Integer, Integer, Integer> spawnLoc = StringParsing.getCoordsFromConfigLocation(global_spawn);
+            e.setRespawnLocation(new Location(p.getWorld(), spawnLoc.first, spawnLoc.second, spawnLoc.third));
+        }
     }
 
 }
