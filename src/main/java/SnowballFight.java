@@ -8,14 +8,11 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Snowball;
-import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.PluginManager;
@@ -24,10 +21,12 @@ import org.bukkit.scoreboard.*;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.http.WebSocket;
 import java.util.*;
 
+//TODO: Better tiebreaker!
+//TODO: Change to timer instead of x kills?
 //I hate Java.
+
 public class SnowballFight extends JavaPlugin implements Listener {
     String sbfCommandName = "sbf";
 
@@ -56,14 +55,6 @@ public class SnowballFight extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         getLogger().info("SnowballFight plugin disabled!");
-    }
-
-    @EventHandler
-    public void onEntityHit(EntityDamageByEntityEvent e){
-        if(e.getDamager() instanceof Snowball){
-            e.setDamage(SnowballConfig.get().getDouble("snowball_damage"));
-            e.getEntity().getWorld().playEffect(e.getEntity().getLocation(), Effect.STEP_SOUND, 80, 1);
-        }
     }
 }
 
@@ -112,7 +103,7 @@ class ReloadCommand extends SubCommand {
 
 class SnowballFightCommand implements CommandExecutor {
     String cmdName;
-    private Map<String, SubCommand> cmds = new HashMap<>(); //Maps name of gamemode to gamemode
+    private Map<String, SubCommand> cmds = new HashMap<>();
 
     public SnowballFightCommand(String sbfCommandName) {
         cmdName = sbfCommandName;
@@ -154,7 +145,8 @@ class NormalSnowballFight extends SubCommand implements Listener{
     public boolean isOngoing = false;
     public ArrayList<PlayerStats> playersStats = new ArrayList<>();
     public World world;
-    public int killsToWin = 30;
+    public int killsToWin = (SnowballConfig.get().getInt(config_prefix + "killsToWin"));
+
     ArrayList<Triple<Integer, Integer, Integer>> spawnLocs = new ArrayList<>();
     Random rnd = new Random();
     //TimerTask task;
@@ -184,7 +176,7 @@ class NormalSnowballFight extends SubCommand implements Listener{
         Scoreboard sb = playersStats.get(0).player.getScoreboard();
 
         for (PlayerStats ps : playersStats){
-            sb.getObjective("sbf_kills").getScore(playersStats.get(0).player.getDisplayName()).setScore(playersStats.get(0).kills);
+            sb.getObjective("sbf_kills").getScore(ps.player.getDisplayName()).setScore(ps.kills);
         }
 
         for (PlayerStats ps : playersStats){
@@ -219,6 +211,27 @@ class NormalSnowballFight extends SubCommand implements Listener{
             return;
         }
 
+        if(Objects.equals(args[0], "del_spawn") || Objects.equals(args[0], "delete_spawn")){
+            if(args.length < 2){
+                player.sendMessage(ChatColor.RED + "Wrong use. Correct use (integers only as in the command \"spawns\"): del_spawn (X;Y;Z)");
+                return;
+            }
+
+            ArrayList<String> spawns = StringParsing.configStringToList(SnowballConfig.get().getString(config_prefix + "spawns"));
+            int sizeBefore = spawns.size();
+            spawns.remove(args[1]);
+
+            if(sizeBefore == spawns.size()){
+                player.sendMessage(ChatColor.RED + "Wrong use somehow? Correct use (X, Y and Z should be integers as shown in command \"spawn\"): del_spawn (X;Y;Z)");
+                return;
+            }
+
+            SnowballConfig.get().set(config_prefix + "spawns", StringParsing.listToConfigString(spawns));
+            SnowballConfig.get().options().copyDefaults(true);
+            SnowballConfig.save();
+            player.sendMessage("Location deleted!");
+        }
+
         if(Objects.equals(args[0], "start")) {
             if(isOngoing){
                 player.sendMessage(ChatColor.RED + "SnowballFight is already in progress!");
@@ -249,60 +262,33 @@ class NormalSnowballFight extends SubCommand implements Listener{
             for(PlayerStats ps : playersStats)
                 createBoard(ps.player);
 
-
-            //TODO: Change to timer instead of x kills?
-//            task = new TimerTask() {
-//                @Override
-//                public void run() {
-//                    System.out.println("SnowballFight performed on: " + new Date() + "n" +
-//                            "Thread's name: " + Thread.currentThread().getName());
-//                    stopFight();
-//                }
-//            };
-//
-//            Timer timer = new Timer();
-//
-//            int matchLength = 10; //Seconds
-//
-//            if (args.length > 1){
-//                try{
-//                    matchLength = Integer.parseInt(args[1]);
-//                }catch(NumberFormatException e){
-//
-//                }
-//            }
-//            timer.schedule(task, matchLength * 1000);
             return;
         }
 
         if(Objects.equals(args[0], "stop")){
-            //if(task != null) task.cancel();
+            if(!isOngoing){
+                player.sendMessage(ChatColor.RED + "No fight is currently in progress!");
+                return;
+            }
+
             stopFight();
             return;
         }
 
-        //TODO: Delete spawn
-    }
 
-//    public Triple<Integer, Integer, Integer> tpPlayerToSpawnLocation(Player p){
-//        Triple<Integer, Integer, Integer> spawnLoc;
-//
-//        if(isOngoing){
-//            int num = rnd.nextInt(spawnLocs.size());
-//            spawnLoc = spawnLocs.get(num);
-//            p.getInventory().clear();
-//            p.getInventory().addItem(new ItemStack(Material.SNOWBALL, 2000));
-//            p.setHealth(20.0);
-//        }else{
-//            String global_spawn = SnowballConfig.get().getString("global_spawn");
-//            spawnLoc = StringParsing.getCoordsFromConfigLocation(global_spawn);
-//        }
-//        return spawnLoc;
-//    }
+    }
 
     public Triple<Integer, Integer, Integer> getRandomFightSpawn(Player p){
         int num = rnd.nextInt(spawnLocs.size());
         return spawnLocs.get(num);
+    }
+
+    @EventHandler
+    public void onEntityHit(EntityDamageByEntityEvent e){
+        if(e.getDamager() instanceof Snowball){
+            e.setDamage(SnowballConfig.get().getDouble(config_prefix + "snowball_damage"));
+            e.getEntity().getWorld().playEffect(e.getEntity().getLocation(), Effect.STEP_SOUND, 80, 1);
+        }
     }
 
     @EventHandler
@@ -315,8 +301,6 @@ class NormalSnowballFight extends SubCommand implements Listener{
     public void onPlayerDeath(PlayerDeathEvent e){
         e.getDrops().clear();
         if(!isOngoing) return;
-
-        updateBoardForAllPlayers();
 
         Player killed = e.getEntity();
         Player killer = killed.getKiller();
@@ -334,14 +318,16 @@ class NormalSnowballFight extends SubCommand implements Listener{
             }
         }
 
+        updateBoardForAllPlayers();
+
         if(winner != null)
             stopFight();
     }
 
     public void stopFight(){
         if(!isOngoing) return;
-        //TODO: Better tiebreaker!
-        //TODO: Give snowballs on throw! Not important
+
+
         Collections.sort(playersStats, new Comparator<PlayerStats>() {
             @Override
             public int compare(PlayerStats o1, PlayerStats o2) {
@@ -356,7 +342,7 @@ class NormalSnowballFight extends SubCommand implements Listener{
             PlayerStats third = playersStats.get(2);
 
             for (PlayerStats ps : playersStats){
-                ps.player.sendMessage(ChatColor.YELLOW + "Time's up!");
+                ps.player.sendMessage(ChatColor.YELLOW + "WINNER WINNER CHICKEN DINNER!");
                 ps.player.sendMessage(ChatColor.YELLOW + String.format("1st place (%d kills): %s ", first.kills, first.player.getDisplayName()));
                 ps.player.sendMessage(ChatColor.YELLOW + String.format("2nd place (%d kills): %s ", second.kills, second.player.getDisplayName()));
                 ps.player.sendMessage(ChatColor.YELLOW + String.format("3rd place (%d kills): %s ", third.kills, third.player.getDisplayName()));
@@ -366,7 +352,7 @@ class NormalSnowballFight extends SubCommand implements Listener{
             PlayerStats second = playersStats.get(1);
 
             for (PlayerStats ps : playersStats){
-                ps.player.sendMessage(ChatColor.YELLOW + "Time's up!");
+                ps.player.sendMessage(ChatColor.YELLOW + "WINNER WINNER CHICKEN DINNER!");
                 ps.player.sendMessage(ChatColor.YELLOW + String.format("1st place (%d kills): %s ", first.kills, first.player.getDisplayName()));
                 ps.player.sendMessage(ChatColor.YELLOW + String.format("2nd place (%d kills): %s ", second.kills, second.player.getDisplayName()));
             }
@@ -374,7 +360,7 @@ class NormalSnowballFight extends SubCommand implements Listener{
             PlayerStats first = playersStats.get(0);
 
             for (PlayerStats ps : playersStats){
-                ps.player.sendMessage(ChatColor.YELLOW + "Time's up!");
+                ps.player.sendMessage(ChatColor.YELLOW + "WINNER WINNER CHICKEN DINNER!");
                 ps.player.sendMessage(ChatColor.YELLOW + String.format("1st place (%d kills): %s ", first.kills, first.player.getDisplayName()));
             }
         }
