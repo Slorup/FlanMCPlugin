@@ -25,10 +25,24 @@ import java.util.*;
 
 //TODO: Better tiebreaker!
 //TODO: Change to timer instead of x kills?
-//I hate Java.
+//TODO: Snowblocks - Make sure not possible in parkour!
+//TODO: List in config
+//TODO: Other gamemodes Hexagon/tntrun/spleef
+//TODO: Add rules to gamemodes/parkour
+//TODO: Parkour - speedrun/cps/win/reward
+//TODO: Better handling of player join/leave during gamemodes
+
+class Globals{
+    enum Gamemode{
+        NONE,
+        NORMAL
+    }
+
+    public static Gamemode Ongoing = Gamemode.NONE;
+    public static String sbfCommandName = "sbf";
+}
 
 public class SnowballFight extends JavaPlugin implements Listener {
-    String sbfCommandName = "sbf";
 
     @Override
     public void onEnable() {
@@ -38,8 +52,8 @@ public class SnowballFight extends JavaPlugin implements Listener {
         saveDefaultConfig();
         SnowballConfig.setup();
 
-        SnowballFightCommand cmd = new SnowballFightCommand(sbfCommandName);
-        getCommand(sbfCommandName).setExecutor(cmd);
+        SnowballFightCommand cmd = new SnowballFightCommand();
+        getCommand(Globals.sbfCommandName).setExecutor(cmd);
         NormalSnowballFight nsf = new NormalSnowballFight();
         cmd.registerCommand("normal", nsf);
         cmd.registerCommand("reload", new ReloadCommand());
@@ -102,12 +116,7 @@ class ReloadCommand extends SubCommand {
 }
 
 class SnowballFightCommand implements CommandExecutor {
-    String cmdName;
     private Map<String, SubCommand> cmds = new HashMap<>();
-
-    public SnowballFightCommand(String sbfCommandName) {
-        cmdName = sbfCommandName;
-    }
 
     public void registerCommand(String cmd, SubCommand subCommand){
         cmds.put(cmd, subCommand);
@@ -118,7 +127,7 @@ class SnowballFightCommand implements CommandExecutor {
         if(sender instanceof Player p && p.isOp()){
             if(args.length == 0){
                 p.sendMessage(ChatColor.RED + "You need to enter some arguments.");
-                p.sendMessage(ChatColor.YELLOW + String.format("To see all commands: /%s help", cmdName));
+                p.sendMessage(ChatColor.YELLOW + String.format("To see all commands: /%s help", Globals.sbfCommandName));
                 return false;
             }
 
@@ -142,18 +151,15 @@ class SnowballFightCommand implements CommandExecutor {
 
 class NormalSnowballFight extends SubCommand implements Listener{
     private final String config_prefix = "normal.";
-    public boolean isOngoing = false;
     public ArrayList<PlayerStats> playersStats = new ArrayList<>();
     public World world;
     public int killsToWin = (SnowballConfig.get().getInt(config_prefix + "killsToWin"));
 
     ArrayList<Triple<Integer, Integer, Integer>> spawnLocs = new ArrayList<>();
     Random rnd = new Random();
-    //TimerTask task;
 
     public void createBoard(Player p){
-        ScoreboardManager manager = Bukkit.getScoreboardManager();
-        Scoreboard board = manager.getNewScoreboard();
+        Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
 
         Objective obj = board.registerNewObjective("sbf_kills", "dummy", ChatColor.RED + "SBF Kills");
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
@@ -163,14 +169,10 @@ class NormalSnowballFight extends SubCommand implements Listener{
         p.setScoreboard(board);
     }
 
+
+
     public void updateBoardForAllPlayers(){ //TODO: Super duper ineffecient but it works (maybe?)
-        Collections.sort(playersStats, new Comparator<PlayerStats>() {
-            @Override
-            public int compare(PlayerStats o1, PlayerStats o2) {
-                if(o1.kills == o2.kills) return 0;
-                return o1.kills < o2.kills ? 1 : -1;
-            }
-        });
+        sortPlayerStatsByKills();
         if(playersStats.size() == 0) return;
 
         Scoreboard sb = playersStats.get(0).player.getScoreboard();
@@ -184,6 +186,13 @@ class NormalSnowballFight extends SubCommand implements Listener{
         }
     }
 
+    private void sortPlayerStatsByKills() {
+        playersStats.sort((o1, o2) -> {
+            if (o1.kills == o2.kills) return 0;
+            return o1.kills < o2.kills ? 1 : -1;
+        });
+    }
+
     @Override
     void onCommand(Player player, Command cmd, String[] args) {
         if(args.length == 0){
@@ -194,7 +203,6 @@ class NormalSnowballFight extends SubCommand implements Listener{
         if(Objects.equals(args[0], "spawns")) {
             ArrayList<String> spawns = StringParsing.configStringToList(SnowballConfig.get().getString(config_prefix + "spawns"));
             player.sendMessage(spawns.toString());
-
             return;
         }
 
@@ -233,11 +241,11 @@ class NormalSnowballFight extends SubCommand implements Listener{
         }
 
         if(Objects.equals(args[0], "start")) {
-            if(isOngoing){
-                player.sendMessage(ChatColor.RED + "SnowballFight is already in progress!");
+            if(Globals.Ongoing != Globals.Gamemode.NONE){
+                player.sendMessage(ChatColor.RED + "Another gamemode is already in progress!");
                 return;
             }
-            isOngoing = true;
+            Globals.Ongoing = Globals.Gamemode.NORMAL;
 
             playersStats = new ArrayList<>();
             world = player.getWorld();
@@ -257,6 +265,7 @@ class NormalSnowballFight extends SubCommand implements Listener{
                 p.teleport(new Location(p.getWorld(), spawnLoc.first, spawnLoc.second, spawnLoc.third));
 
                 p.sendMessage(ChatColor.YELLOW + "Snowball fight has started!");
+                p.sendMessage(ChatColor.YELLOW + String.format("First to %d kills wins!", SnowballConfig.get().getInt(config_prefix + "killsToWin")));
             }
 
             for(PlayerStats ps : playersStats)
@@ -266,15 +275,16 @@ class NormalSnowballFight extends SubCommand implements Listener{
         }
 
         if(Objects.equals(args[0], "stop")){
-            if(!isOngoing){
+            if(Globals.Ongoing == Globals.Gamemode.NONE){
                 player.sendMessage(ChatColor.RED + "No fight is currently in progress!");
                 return;
+            }else if(Globals.Ongoing != Globals.Gamemode.NORMAL){
+                player.sendMessage(ChatColor.RED + "Wrong gamemode to stop!");
+                return;
             }
-
             stopFight();
             return;
         }
-
 
     }
 
@@ -300,7 +310,7 @@ class NormalSnowballFight extends SubCommand implements Listener{
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent e){
         e.getDrops().clear();
-        if(!isOngoing) return;
+        if(Globals.Ongoing != Globals.Gamemode.NORMAL) return;
 
         Player killed = e.getEntity();
         Player killer = killed.getKiller();
@@ -325,64 +335,50 @@ class NormalSnowballFight extends SubCommand implements Listener{
     }
 
     public void stopFight(){
-        if(!isOngoing) return;
+        if(Globals.Ongoing != Globals.Gamemode.NORMAL) return;
 
+        sortPlayerStatsByKills();
 
-        Collections.sort(playersStats, new Comparator<PlayerStats>() {
-            @Override
-            public int compare(PlayerStats o1, PlayerStats o2) {
-                if(o1.kills == o2.kills) return 0;
-                return o1.kills < o2.kills ? 1 : -1;
-            }
-        });
+        ArrayList<String> messagesToShow = new ArrayList<>();
+        messagesToShow.add(ChatColor.YELLOW + "The gamemode is now over!");
 
-        if(playersStats.size() >= 3){
-            PlayerStats first = playersStats.get(0);
-            PlayerStats second = playersStats.get(1);
-            PlayerStats third = playersStats.get(2);
+        if(playersStats.size() >= 1) {
+            PlayerStats p = playersStats.get(0);
+            messagesToShow.add(ChatColor.YELLOW + String.format("1st place (%d kills): %s ", p.kills, p.player.getDisplayName()));
+        }
+        if(playersStats.size() >= 2) {
+            PlayerStats p = playersStats.get(1);
+            messagesToShow.add(ChatColor.YELLOW + String.format("2nd place (%d kills): %s ", p.kills, p.player.getDisplayName()));
+        }
+        if(playersStats.size() >= 3) {
+            PlayerStats p = playersStats.get(2);
+            messagesToShow.add(ChatColor.YELLOW + String.format("3rd place (%d kills): %s ", p.kills, p.player.getDisplayName()));
+        }
 
-            for (PlayerStats ps : playersStats){
-                ps.player.sendMessage(ChatColor.YELLOW + "WINNER WINNER CHICKEN DINNER!");
-                ps.player.sendMessage(ChatColor.YELLOW + String.format("1st place (%d kills): %s ", first.kills, first.player.getDisplayName()));
-                ps.player.sendMessage(ChatColor.YELLOW + String.format("2nd place (%d kills): %s ", second.kills, second.player.getDisplayName()));
-                ps.player.sendMessage(ChatColor.YELLOW + String.format("3rd place (%d kills): %s ", third.kills, third.player.getDisplayName()));
-            }
-        }else if(playersStats.size() >= 2){ //TODO: Quick spaghetti for debugging. Remove later
-            PlayerStats first = playersStats.get(0);
-            PlayerStats second = playersStats.get(1);
-
-            for (PlayerStats ps : playersStats){
-                ps.player.sendMessage(ChatColor.YELLOW + "WINNER WINNER CHICKEN DINNER!");
-                ps.player.sendMessage(ChatColor.YELLOW + String.format("1st place (%d kills): %s ", first.kills, first.player.getDisplayName()));
-                ps.player.sendMessage(ChatColor.YELLOW + String.format("2nd place (%d kills): %s ", second.kills, second.player.getDisplayName()));
-            }
-        }else if(playersStats.size() >= 1){
-            PlayerStats first = playersStats.get(0);
-
-            for (PlayerStats ps : playersStats){
-                ps.player.sendMessage(ChatColor.YELLOW + "WINNER WINNER CHICKEN DINNER!");
-                ps.player.sendMessage(ChatColor.YELLOW + String.format("1st place (%d kills): %s ", first.kills, first.player.getDisplayName()));
-            }
+        for (PlayerStats ps : playersStats){
+            for (String message : messagesToShow)
+                ps.player.sendMessage(message);
         }
 
         String global_spawn = SnowballConfig.get().getString("global_spawn");
         Triple<Integer, Integer, Integer> t = StringParsing.getCoordsFromConfigLocation(global_spawn);
         for(PlayerStats ps : playersStats){
             ps.player.teleport(new Location(world, t.first, t.second, t.third));
+            ps.player.getInventory().clear();
         }
 
-        isOngoing = false;
+        Globals.Ongoing = Globals.Gamemode.NONE;
     }
 
     @EventHandler
     public void onPlayerRespawn(PlayerRespawnEvent e){
         Player p = e.getPlayer();
 
-        if(isOngoing){
+        if(Globals.Ongoing == Globals.Gamemode.NORMAL){
             Triple<Integer, Integer, Integer> spawnLoc = getRandomFightSpawn(p);
             p.getInventory().addItem(new ItemStack(Material.SNOWBALL, 2000));
             e.setRespawnLocation(new Location(p.getWorld(), spawnLoc.first, spawnLoc.second, spawnLoc.third));
-        }else{
+        }else if(Globals.Ongoing == Globals.Gamemode.NONE){
             String global_spawn = SnowballConfig.get().getString("global_spawn");
             Triple<Integer, Integer, Integer> spawnLoc = StringParsing.getCoordsFromConfigLocation(global_spawn);
             e.setRespawnLocation(new Location(p.getWorld(), spawnLoc.first, spawnLoc.second, spawnLoc.third));
