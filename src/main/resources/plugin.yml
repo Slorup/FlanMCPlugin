@@ -4,4 +4,6 @@ main: SnowballFight
 api-version: 1.18
 commands:
   sbf:
-    description: SnowballFight Main Command
+    description: SnowballFight main commands
+  parkour:
+    description: All commands related to the parkour

@@ -1,6 +1,8 @@
 import Utils.StringParsing;
 import Utils.Triple;
 import org.bukkit.*;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -13,6 +15,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.PluginManager;
@@ -40,6 +43,8 @@ class Globals{
 
     public static Gamemode Ongoing = Gamemode.NONE;
     public static String sbfCommandName = "sbf";
+    public static String parkourCommandName = "parkour";
+    public static ArrayList<Triple<Integer, Integer, Integer>> parkour_checkpoints = new ArrayList<>();
 }
 
 public class SnowballFight extends JavaPlugin implements Listener {
@@ -58,9 +63,16 @@ public class SnowballFight extends JavaPlugin implements Listener {
         cmd.registerCommand("normal", nsf);
         cmd.registerCommand("reload", new ReloadCommand());
 
+        ParkourCommand parkourCmd = new ParkourCommand();
+        getCommand(Globals.parkourCommandName).setExecutor(parkourCmd);
+        parkourCmd.registerCommand("rules", new ParkourRulesCommand());
+        parkourCmd.registerCommand("respawn", new ParkourRespawnCommand());
+        parkourCmd.registerCommand("restart", new ParkourRestartCommand());
+
         PluginManager pm = getServer().getPluginManager();
         pm.registerEvents(this, this);
         pm.registerEvents(nsf, this);
+        pm.registerEvents(parkourCmd, this);
 
         SnowballConfig.get().options().copyDefaults(true);
         SnowballConfig.save();
@@ -72,38 +84,152 @@ public class SnowballFight extends JavaPlugin implements Listener {
     }
 }
 
+class ParkourCommand implements CommandExecutor, Listener {
+    private Map<String, SubCommand> cmds = new HashMap<>();
 
-class SnowballConfig{
-    private static File file;
-    private static FileConfiguration customFile;
+    public void registerCommand(String cmd, SubCommand subCommand){
+        cmds.put(cmd, subCommand);
+    }
 
-    public static void setup(){
-        file = new File(Bukkit.getServer().getPluginManager().getPlugin("FlanSnowballFight").getDataFolder(),"snowballfight_config.yml");
+    @Override
+    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+        if(sender instanceof Player p){
+            if(args.length == 0){
+                p.sendMessage(ChatColor.YELLOW + String.format("Existing subcommands are %s", cmds.keySet().toString()));
+                return true;
+            }
 
-        if(!file.exists()){
-            try{
-                file.createNewFile();
-            }catch(IOException e){
-                //Sucks
+            if(args[0].equals("help") || args[0].equals("h")){
+                p.sendMessage(ChatColor.YELLOW + String.format("Existing subcommands are %s", cmds.keySet().toString()));
+                return true;
+            }
+
+            if(!cmds.containsKey(args[0].toLowerCase())){
+                p.sendMessage(ChatColor.RED + "This subcommand does not exist!");
+                p.sendMessage(ChatColor.YELLOW + String.format("Existing subcommands are %s", cmds.keySet().toString()));
+                return true;
+            }
+
+            cmds.get(args[0]).onCommand(p, cmd, Arrays.copyOfRange(args, 1, args.length));
+        }
+
+        return true;
+    }
+
+
+    @EventHandler
+    public void onPlayerMove(PlayerMoveEvent e){
+        Player player = e.getPlayer();
+
+        Block b = player.getLocation().getBlock().getRelative(BlockFace.DOWN);
+
+        List<String> l = (List<String>) SnowballConfig.get().getList("parkour." + "player_cps");
+        List<String> newCps = new ArrayList<>();
+
+        int playerCP = 0;
+        for(String i : l){
+            String p = i.split(";")[0];
+
+            if(Objects.equals(p.toLowerCase(), player.getDisplayName().toLowerCase())){
+                playerCP = Integer.parseInt(i.split(";")[1]);
+            }else{
+                newCps.add(i);
             }
         }
-        customFile = YamlConfiguration.loadConfiguration(file);
-    }
+        Boolean update = false;
 
-    public static FileConfiguration get(){
-        return customFile;
-    }
+        if(b.getType() == Material.IRON_BLOCK){
+            if(playerCP < 1){
+                update = true;
+                playerCP = 1;
+            }
+        }else if(b.getType() == Material.GOLD_BLOCK){
+            if(playerCP < 2){
+                update = true;
+                playerCP = 2;
+            }
+        }else if(b.getType() == Material.DIAMOND_BLOCK){
+            if(playerCP < 3){
+                update = true;
+                playerCP = 3;
+            }
+        }
 
-    public static void save(){
-        try{
-            customFile.save(file);
-        }catch(IOException e){
-            System.out.println("Could not save file");
+        if(update){
+            newCps.add(player.getDisplayName().toLowerCase() + ";" + playerCP);
+            player.sendMessage(ChatColor.GREEN + String.format("Checkpoint %d reached!", playerCP));
+            SnowballConfig.get().set("parkour." + "player_cps", newCps);
+            SnowballConfig.get().options().copyDefaults(true);
+            SnowballConfig.save();
         }
     }
+}
 
-    public static void reload(){
-        customFile = YamlConfiguration.loadConfiguration(file);
+class ParkourRulesCommand extends SubCommand{
+
+    void onCommand(Player player, Command cmd, String[] args) {
+        player.sendMessage(ChatColor.RED + "Don't cheat.");
+        player.sendMessage(ChatColor.YELLOW + "First person to complete the parkour gets a {placeholder}");
+    }
+
+}
+
+class ParkourRespawnCommand extends SubCommand{
+    private final String config_prefix = "parkour.";
+
+    void onCommand(Player player, Command cmd, String[] args) {
+        if(Globals.Ongoing != Globals.Gamemode.NONE){
+            player.sendMessage(ChatColor.RED + "Cannot tp during gamemode!");
+            return;
+        }
+
+        List<String> l = (List<String>) SnowballConfig.get().getList(config_prefix + "player_cps");
+
+        int playerCP = 0;
+        for(String i : l){
+            String p = i.split(";")[0];
+            if(!Objects.equals(p.toLowerCase(), player.getDisplayName().toLowerCase())) continue;
+
+            playerCP = Integer.parseInt(i.split(";")[1]);
+            break;
+        }
+
+        List<String> cpLocations = (List<String>) SnowballConfig.get().getList(config_prefix + "cp_locations");
+        Triple<Integer, Integer, Integer> loc = StringParsing.getCoordsFromConfigLocation(cpLocations.get(playerCP));
+
+        player.teleport(new Location(player.getWorld(), loc.first, loc.second, loc.third));
+        player.sendMessage(ChatColor.YELLOW + String.format("Teleported to checkpoint %d", playerCP));
+    }
+}
+
+class ParkourRestartCommand extends SubCommand{
+    private final String config_prefix = "parkour.";
+
+    void onCommand(Player player, Command cmd, String[] args) {
+        if(Globals.Ongoing != Globals.Gamemode.NONE){
+            player.sendMessage(ChatColor.RED + "Cannot tp during gamemode!");
+            return;
+        }
+
+        List<String> cps = (List<String>) SnowballConfig.get().getList(config_prefix + "player_cps");
+        List<String> newCps = new ArrayList<>();
+
+        for(String i : cps){
+            String p = i.split(";")[0];
+            if(!Objects.equals(p.toLowerCase(), player.getDisplayName().toLowerCase())){
+                newCps.add(i);
+            }
+        }
+        newCps.add(player.getDisplayName().toLowerCase() + ";0");
+        SnowballConfig.get().set(config_prefix + "player_cps", newCps);
+        SnowballConfig.get().options().copyDefaults(true);
+        SnowballConfig.save();
+
+        String l = SnowballConfig.get().getString(config_prefix + "spawn");
+        Triple<Integer, Integer, Integer> loc = StringParsing.getCoordsFromConfigLocation(l);
+
+        player.teleport(new Location(player.getWorld(), loc.first, loc.second, loc.third));
+        player.sendMessage(ChatColor.YELLOW + String.format("Parkour progress reset!"));
     }
 }
 
@@ -132,7 +258,7 @@ class SnowballFightCommand implements CommandExecutor {
             }
 
             if(args[0].toLowerCase().equals("help") || args[0].toLowerCase().equals("h")){
-                p.sendMessage(ChatColor.RED + "Sucks, I was too lazy to implement help command");
+                p.sendMessage(ChatColor.RED + "I was too lazy to implement a help command...");
                 return true;
             }
 
@@ -153,7 +279,6 @@ class NormalSnowballFight extends SubCommand implements Listener{
     private final String config_prefix = "normal.";
     public ArrayList<PlayerStats> playersStats = new ArrayList<>();
     public World world;
-    public int killsToWin = (SnowballConfig.get().getInt(config_prefix + "killsToWin"));
 
     ArrayList<Triple<Integer, Integer, Integer>> spawnLocs = new ArrayList<>();
     Random rnd = new Random();
@@ -168,8 +293,6 @@ class NormalSnowballFight extends SubCommand implements Listener{
 
         p.setScoreboard(board);
     }
-
-
 
     public void updateBoardForAllPlayers(){ //TODO: Super duper ineffecient but it works (maybe?)
         sortPlayerStatsByKills();
@@ -260,12 +383,13 @@ class NormalSnowballFight extends SubCommand implements Listener{
                 playersStats.add(new PlayerStats(p));
                 Triple<Integer, Integer, Integer> spawnLoc = getRandomFightSpawn(p);
                 p.getInventory().clear();
-                p.getInventory().addItem(new ItemStack(Material.SNOWBALL, 2000));
+                givePlayerStartItems(p);
                 p.setHealth(20.0);
                 p.teleport(new Location(p.getWorld(), spawnLoc.first, spawnLoc.second, spawnLoc.third));
 
                 p.sendMessage(ChatColor.YELLOW + "Snowball fight has started!");
-                p.sendMessage(ChatColor.YELLOW + String.format("First to %d kills wins!", SnowballConfig.get().getInt(config_prefix + "killsToWin")));
+                p.sendMessage(ChatColor.YELLOW + String.format("First to %d kills wins!", SnowballConfig.get().getInt(config_prefix + "kills_to_win")));
+                p.sendMessage(ChatColor.GREEN + "Snowblocks can be crafted and destroyed during the game!");
             }
 
             for(PlayerStats ps : playersStats)
@@ -303,8 +427,8 @@ class NormalSnowballFight extends SubCommand implements Listener{
 
     @EventHandler
     public void onBlockBreak(BlockBreakEvent e){
-        if(!e.getPlayer().isOp())
-            e.setCancelled(true); //Let's just disable all block breaking on the server! :)
+        if(!e.getPlayer().isOp() && e.getBlock().getType() != Material.SNOW_BLOCK)
+            e.setCancelled(true); //Let's just disable all block breaking on the server except snow blocks! :)
     }
 
     @EventHandler
@@ -324,7 +448,7 @@ class NormalSnowballFight extends SubCommand implements Listener{
 
             if(!skipKiller && ps.player.getDisplayName().equals(killer.getDisplayName())){
                 ps.kills++;
-                if(ps.kills == killsToWin) winner = ps;
+                if(ps.kills == SnowballConfig.get().getInt(config_prefix + "kills_to_win")) winner = ps;
             }
         }
 
@@ -376,13 +500,18 @@ class NormalSnowballFight extends SubCommand implements Listener{
 
         if(Globals.Ongoing == Globals.Gamemode.NORMAL){
             Triple<Integer, Integer, Integer> spawnLoc = getRandomFightSpawn(p);
-            p.getInventory().addItem(new ItemStack(Material.SNOWBALL, 2000));
+            givePlayerStartItems(p);
             e.setRespawnLocation(new Location(p.getWorld(), spawnLoc.first, spawnLoc.second, spawnLoc.third));
         }else if(Globals.Ongoing == Globals.Gamemode.NONE){
             String global_spawn = SnowballConfig.get().getString("global_spawn");
             Triple<Integer, Integer, Integer> spawnLoc = StringParsing.getCoordsFromConfigLocation(global_spawn);
             e.setRespawnLocation(new Location(p.getWorld(), spawnLoc.first, spawnLoc.second, spawnLoc.third));
         }
+    }
+
+    public void givePlayerStartItems(Player p){
+        p.getInventory().addItem(new ItemStack(Material.DIAMOND_SHOVEL, 1));
+        p.getInventory().addItem(new ItemStack(Material.SNOWBALL, 500));
     }
 
 }
@@ -396,6 +525,40 @@ class PlayerStats{
 
     public PlayerStats(Player p){
         player = p;
+    }
+}
+
+class SnowballConfig{
+    private static File file;
+    private static FileConfiguration customFile;
+
+    public static void setup(){
+        file = new File(Bukkit.getServer().getPluginManager().getPlugin("FlanSnowballFight").getDataFolder(),"snowballfight_config.yml");
+
+        if(!file.exists()){
+            try{
+                file.createNewFile();
+            }catch(IOException e){
+                //Sucks
+            }
+        }
+        customFile = YamlConfiguration.loadConfiguration(file);
+    }
+
+    public static FileConfiguration get(){
+        return customFile;
+    }
+
+    public static void save(){
+        try{
+            customFile.save(file);
+        }catch(IOException e){
+            System.out.println("Could not save file");
+        }
+    }
+
+    public static void reload(){
+        customFile = YamlConfiguration.loadConfiguration(file);
     }
 }
 
