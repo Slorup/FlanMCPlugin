@@ -161,6 +161,24 @@ class ParkourCommand implements CommandExecutor, Listener {
             SnowballConfig.get().set("parkour." + "player_cps", newCps);
             SnowballConfig.get().options().copyDefaults(true);
             SnowballConfig.save();
+
+            int goal = SnowballConfig.get().getInt("parkour." + "goal_cp");
+            if(goal == playerCP){
+                for(Player p : Bukkit.getOnlinePlayers()){
+                    p.sendMessage(ChatColor.GREEN + String.format("%s just completed the parkour! Congratulations!", player.getDisplayName()));
+                }
+                Boolean completed = SnowballConfig.get().getBoolean("parkour." + "completed");
+
+                if(!completed){
+                    for(Player p : Bukkit.getOnlinePlayers()){
+                        p.sendMessage(ChatColor.GREEN + String.format("%s was the first to complete the parkour!", player.getDisplayName()));
+                    }
+
+                    SnowballConfig.get().set("parkour." + "completed", true);
+                    SnowballConfig.get().options().copyDefaults(true);
+                    SnowballConfig.save();
+                }
+            }
         }
     }
 }
