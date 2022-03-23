@@ -7,3 +7,5 @@ commands:
     description: SnowballFight main commands
   parkour:
     description: All commands related to the parkour
+  spawn:
+    description: Teleports to spawn

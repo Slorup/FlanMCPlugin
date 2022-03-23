@@ -3,19 +3,25 @@ import Utils.Triple;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Snowball;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.entity.ProjectileHitEvent;
+import org.bukkit.event.inventory.PrepareItemCraftEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.PluginManager;
@@ -26,19 +32,27 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
-//TODO: Better tiebreaker!
-//TODO: Change to timer instead of x kills?
-//TODO: Snowblocks - Make sure not possible in parkour!
 //TODO: List in config
-//TODO: Other gamemodes Hexagon/tntrun/spleef
-//TODO: Add rules to gamemodes/parkour
-//TODO: Parkour - speedrun/cps/win/reward
 //TODO: Better handling of player join/leave during gamemodes
+//TODO: Global /spawn command - Only useable when no gamemodes are active
+
+//TODO: Normal - Better tiebreaker!
+//TODO: Normal - Change to timer instead of x kills?
+
+//TODO: Parkour - Stats: time/deaths
+//TODO: Parkour - Make sure effects apply on edge of blocks
+//TODO: Parkour - Make sure no placement of Snowblocks!
+
+//TODO: Spleef - Snowball damage?
+//TODO: Spleef - Scoreboard
+
+//TODO: Other gamemodes BR/3 lives - last man standing
 
 class Globals{
     enum Gamemode{
         NONE,
-        NORMAL
+        NORMAL,
+        SPLEEF
     }
 
     public static Gamemode Ongoing = Gamemode.NONE;
@@ -60,7 +74,9 @@ public class SnowballFight extends JavaPlugin implements Listener {
         SnowballFightCommand cmd = new SnowballFightCommand();
         getCommand(Globals.sbfCommandName).setExecutor(cmd);
         NormalSnowballFight nsf = new NormalSnowballFight();
+        Spleef spleef = new Spleef();
         cmd.registerCommand("normal", nsf);
+        cmd.registerCommand("spleef", spleef);
         cmd.registerCommand("reload", new ReloadCommand());
 
         ParkourCommand parkourCmd = new ParkourCommand();
@@ -69,9 +85,12 @@ public class SnowballFight extends JavaPlugin implements Listener {
         parkourCmd.registerCommand("respawn", new ParkourRespawnCommand());
         parkourCmd.registerCommand("restart", new ParkourRestartCommand());
 
+        getCommand("spawn").setExecutor(new SpawnCommand());
+
         PluginManager pm = getServer().getPluginManager();
         pm.registerEvents(this, this);
         pm.registerEvents(nsf, this);
+        pm.registerEvents(spleef, this);
         pm.registerEvents(parkourCmd, this);
 
         SnowballConfig.get().options().copyDefaults(true);
@@ -187,7 +206,7 @@ class ParkourRulesCommand extends SubCommand{
 
     void onCommand(Player player, Command cmd, String[] args) {
         player.sendMessage(ChatColor.RED + "Don't cheat.");
-        player.sendMessage(ChatColor.YELLOW + "First person to complete the parkour gets a {placeholder}");
+        player.sendMessage(ChatColor.YELLOW + "No rewards, only for fun!");
     }
 
 }
@@ -256,6 +275,24 @@ class ReloadCommand extends SubCommand {
     void onCommand(Player player, Command cmd, String[] args) {
         SnowballConfig.reload();
         player.sendMessage(ChatColor.GREEN + "FlanSnowballFight plugin reloaded!");
+    }
+}
+
+class SpawnCommand implements CommandExecutor{
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+        if(sender instanceof Player p) {
+            if (Globals.Ongoing != Globals.Gamemode.NONE){
+                p.sendMessage(ChatColor.RED + "Can not teleport to spawn during gamemode!");
+                return false;
+            }
+
+            Triple<Integer, Integer, Integer> global_spawn = StringParsing.getCoordsFromConfigLocation(SnowballConfig.get().getString("global_spawn"));
+            p.teleport(new Location(p.getWorld(), global_spawn.first, global_spawn.second, global_spawn.third));
+            p.getInventory().clear();
+        }
+        return true;
     }
 }
 
@@ -437,6 +474,9 @@ class NormalSnowballFight extends SubCommand implements Listener{
 
     @EventHandler
     public void onEntityHit(EntityDamageByEntityEvent e){
+        if(Globals.Ongoing != Globals.Gamemode.NORMAL)
+            return;
+
         if(e.getDamager() instanceof Snowball){
             e.setDamage(SnowballConfig.get().getDouble(config_prefix + "snowball_damage"));
             e.getEntity().getWorld().playEffect(e.getEntity().getLocation(), Effect.STEP_SOUND, 80, 1);
@@ -445,6 +485,9 @@ class NormalSnowballFight extends SubCommand implements Listener{
 
     @EventHandler
     public void onBlockBreak(BlockBreakEvent e){
+        if(Globals.Ongoing != Globals.Gamemode.NORMAL)
+            return;
+
         if(!e.getPlayer().isOp() && e.getBlock().getType() != Material.SNOW_BLOCK)
             e.setCancelled(true); //Let's just disable all block breaking on the server except snow blocks! :)
     }
@@ -534,6 +577,234 @@ class NormalSnowballFight extends SubCommand implements Listener{
 
 }
 
+class Spleef extends SubCommand implements Listener{
+    private final String config_prefix = "spleef.";
+    private ArrayList<PlayerSpleefStats> player_stats = new ArrayList<>();
+    private long game_start_time;
+    private World world;
+    private Material death_block = Material.COAL_BLOCK;
+
+    @Override
+    void onCommand(Player player, Command cmd, String[] args) {
+        if(args.length == 0){
+            player.sendMessage(ChatColor.RED + "Wrong use - Use better");
+            return;
+        }
+
+        if(Objects.equals(args[0], "start")){
+            if(Globals.Ongoing != Globals.Gamemode.NONE){
+                player.sendMessage(ChatColor.RED + "Another gamemode is already in progress!");
+                return;
+            }
+            Globals.Ongoing = Globals.Gamemode.SPLEEF;
+
+            player_stats = new ArrayList<>();
+            world = player.getWorld();
+            game_start_time = System.currentTimeMillis();
+
+            List<String> upper_coords = (List<String>) SnowballConfig.get().getList(config_prefix + "upper_coords");
+            Triple<Integer, Integer, Integer> from = StringParsing.getCoordsFromConfigLocation(upper_coords.get(0));
+            Triple<Integer, Integer, Integer> to = StringParsing.getCoordsFromConfigLocation(upper_coords.get(1)); //Assume square and x,z coords are bigger for 2nd upper_coord.
+            Random rnd = new Random();
+
+            int layers = SnowballConfig.get().getInt(config_prefix + "layers");
+            int dist_layer = SnowballConfig.get().getInt(config_prefix + "dist_between_layers") + 1;
+            int kill_layer = from.second - (layers * dist_layer);
+
+            for (int x = from.first - 1; x <= to.first + 1; x++){
+                for (int y = from.second + dist_layer; y >= kill_layer - dist_layer; y--){
+                    world.getBlockAt(new Location(world, x, y, from.third - 1)).setType(Material.STONE_BRICKS);
+                    world.getBlockAt(new Location(world, x, y, to.third + 1)).setType(Material.STONE_BRICKS);
+                }
+            }
+
+            for (int z = from.third - 1; z <= to.third + 1; z++){
+                for (int y = from.second + dist_layer; y >= kill_layer - dist_layer; y--) {
+                    world.getBlockAt(new Location(world, from.first - 1, y, z)).setType(Material.STONE_BRICKS);
+                    world.getBlockAt(new Location(world, to.first + 1, y, z)).setType(Material.STONE_BRICKS);
+                }
+            }
+
+            for (int x = from.first; x <= to.first; x++){
+                for (int z = from.third; z <= to.third; z++){
+                    for (int y = from.second; y > kill_layer; y--){
+                        if((from.second - y) % dist_layer == 0)
+                            world.getBlockAt(new Location(world, x, y, z)).setType(Material.SNOW_BLOCK);
+                        else
+                            world.getBlockAt(new Location(world, x, y, z)).setType(Material.AIR);
+                    }
+                }
+            }
+
+            for (int x = from.first; x <= to.first; x++){
+                for (int z = from.third; z <= to.third; z++) {
+                    world.getBlockAt(new Location(world, x, kill_layer, z)).setType(death_block);
+                }
+            }
+
+            for (Player p : Bukkit.getOnlinePlayers()){
+                player_stats.add(new PlayerSpleefStats(p));
+                int spawnX = rnd.nextInt(from.first, to.first);
+                int spawnY = from.second;
+                int spawnZ = rnd.nextInt(from.third, to.third);
+
+                p.getInventory().clear();
+                givePlayerStartItems(p);
+                p.setHealth(20.0);
+                p.teleport(new Location(world, spawnX, spawnY + 2, spawnZ));
+
+                p.sendMessage(ChatColor.YELLOW + "Spleef has started!");
+                p.sendMessage(ChatColor.YELLOW + "Survive as long as possible.");
+                p.sendMessage(ChatColor.YELLOW + "Knock other players out by throwing snowballs at the blocks they are standing on!");
+            }
+
+            return;
+        }
+
+        if(Objects.equals(args[0], "stop")){
+            if(Globals.Ongoing == Globals.Gamemode.NONE){
+                player.sendMessage(ChatColor.RED + "No fight is currently in progress!");
+                return;
+            }else if(Globals.Ongoing != Globals.Gamemode.SPLEEF){
+                player.sendMessage(ChatColor.RED + "Wrong gamemode to stop!");
+                return;
+            }
+            stopGame();
+            return;
+        }
+    }
+
+    @EventHandler
+    public void onPlayerFall(EntityDamageEvent e){
+        if (Globals.Ongoing != Globals.Gamemode.SPLEEF) return;
+        if(e.getCause() != EntityDamageEvent.DamageCause.FALL) return;
+        if(!(e.getEntity() instanceof Player)) return;
+        e.setCancelled(true);
+    }
+
+    @EventHandler
+    public void onPlayerMove(PlayerMoveEvent e){
+        if (Globals.Ongoing != Globals.Gamemode.SPLEEF)
+            return;
+
+        Player p = e.getPlayer();
+        Block b = p.getLocation().getBlock().getRelative(BlockFace.DOWN);
+
+        if(b.getType() == death_block)
+            p.setHealth(0);
+    }
+
+    @EventHandler
+    public void onProjectileHit(ProjectileHitEvent e){
+        if (Globals.Ongoing != Globals.Gamemode.SPLEEF)
+            return;
+
+        if (e.getEntity().getType() != EntityType.SNOWBALL)
+            return;
+
+        if (e.getHitBlock() == null) return;
+
+        if (Objects.requireNonNull(e.getHitBlock()).getType() == Material.SNOW_BLOCK){
+            e.getHitBlock().setType(Material.AIR);
+        }
+    }
+
+    @EventHandler
+    public void onPlayerCraft(PrepareItemCraftEvent e){
+        if (Globals.Ongoing != Globals.Gamemode.SPLEEF)
+            return;
+
+        e.getInventory().setResult(null);
+    }
+
+    @EventHandler
+    public void onPlayerDeath(PlayerDeathEvent e){
+        for(PlayerSpleefStats ps : player_stats){
+            if(e.getEntity().getDisplayName().equals(ps.player.getDisplayName())){
+                ps.alive = false;
+                ps.death_time = System.currentTimeMillis();
+            }
+        }
+
+        int playersAliveCount = getAmountPlayersAlive();
+        if(playersAliveCount <= 1)
+            stopGame();
+    }
+
+    @EventHandler
+    public void onPlayerLogOut(PlayerQuitEvent e){
+        for(PlayerSpleefStats ps : player_stats){
+            if(e.getPlayer().getDisplayName().equals(ps.player.getDisplayName())){
+                ps.alive = false;
+                ps.death_time = System.currentTimeMillis();
+            }
+        }
+
+        int playersAliveCount = getAmountPlayersAlive();
+        if(playersAliveCount <= 1)
+            stopGame();
+    }
+
+    public void stopGame(){
+        if(Globals.Ongoing != Globals.Gamemode.SPLEEF) return;
+
+        sortPlayerStatsByDeathTime();
+
+        ArrayList<String> messagesToShow = new ArrayList<>();
+        messagesToShow.add(ChatColor.YELLOW + "The gamemode is now over!");
+
+        if(player_stats.size() >= 1) {
+            PlayerSpleefStats p = player_stats.get(0);
+            messagesToShow.add(ChatColor.YELLOW + String.format("1st place: %s ", p.player.getDisplayName()));
+        }
+        if(player_stats.size() >= 2) {
+            PlayerSpleefStats p = player_stats.get(1);
+            messagesToShow.add(ChatColor.YELLOW + String.format("2nd place: %s ", p.player.getDisplayName()));
+        }
+        if(player_stats.size() >= 3) {
+            PlayerSpleefStats p = player_stats.get(2);
+            messagesToShow.add(ChatColor.YELLOW + String.format("3rd place: %s ", p.player.getDisplayName()));
+        }
+
+        for (PlayerSpleefStats ps : player_stats){
+            for (String message : messagesToShow)
+                ps.player.sendMessage(message);
+        }
+
+        String global_spawn = SnowballConfig.get().getString("global_spawn");
+        Triple<Integer, Integer, Integer> t = StringParsing.getCoordsFromConfigLocation(global_spawn);
+        for(PlayerSpleefStats ps : player_stats){
+            ps.player.teleport(new Location(world, t.first, t.second, t.third));
+            ps.player.getInventory().clear();
+        }
+
+        Globals.Ongoing = Globals.Gamemode.NONE;
+    }
+
+    private void sortPlayerStatsByDeathTime() {
+        player_stats.sort((o1, o2) -> {
+            if(o1.death_time == 0) return -1;
+            if(o2.death_time == 0) return 1;
+            if (o1.death_time == o2.death_time) return 0;
+            return o1.death_time < o2.death_time ? 1 : -1;
+        });
+    }
+
+    public int getAmountPlayersAlive(){
+        int counter = 0;
+
+        for(PlayerSpleefStats ps : player_stats)
+            if(ps.alive)
+                counter++;
+
+        return counter;
+    }
+
+    public void givePlayerStartItems(Player p){
+        p.getInventory().addItem(new ItemStack(Material.SNOWBALL, 2000));
+    }
+}
+
 class PlayerStats{
     public Player player;
     public double damage_done = 0;
@@ -544,6 +815,13 @@ class PlayerStats{
     public PlayerStats(Player p){
         player = p;
     }
+}
+
+class PlayerSpleefStats{
+    public Player player;
+    public long death_time;
+    public Boolean alive = true;
+    public PlayerSpleefStats(Player p) {player = p;}
 }
 
 class SnowballConfig{
