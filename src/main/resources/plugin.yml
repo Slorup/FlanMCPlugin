@@ -1,11 +1,13 @@
-name: FlanSnowballFight
+name: FlanPlugin
 version: 1.0.0
-main: SnowballFight
+main: FlanPlugin
 api-version: 1.18
 commands:
   sbf:
-    description: SnowballFight main commands
+    description: All commands related to Snowball Fight
   parkour:
-    description: All commands related to the parkour
+    description: All commands related to the Parkour
+  twd:
+    description: All commands related to The Walking Datalog
   spawn:
     description: Teleports to spawn
