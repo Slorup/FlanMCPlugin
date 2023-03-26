@@ -70,7 +70,7 @@ public class FlanPlugin extends JavaPlugin implements Listener {
         parkourCmd.registerCommand("respawn", new ParkourRespawnCommand());
         parkourCmd.registerCommand("restart", new ParkourRestartCommand());
 
-
+        //The Walking Dtaalog
         TheWalkingDatalogCommandExecutor twdCmd = new TheWalkingDatalogCommandExecutor();
         getCommand(Globals.twdCommandName).setExecutor(twdCmd);
         TheWalkingDatalog twd = new TheWalkingDatalog();

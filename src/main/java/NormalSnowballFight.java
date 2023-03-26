@@ -39,7 +39,7 @@ class NormalSnowballFight extends SubCommand implements Listener {
         p.setScoreboard(board);
     }
 
-    public void updateBoardForAllPlayers(){ //TODO: Super duper ineffecient but it works (maybe?)
+    public void updateBoardForAllPlayers(){
         sortPlayerStatsByKills();
         if(playersStats.size() == 0) return;
 
