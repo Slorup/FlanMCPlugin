@@ -93,7 +93,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 p.getInventory().clear();
                 p.setHealth(20.0);
                 p.setSaturation(20);
-                p.teleport(new Location(world, twd_spawn_point.first, twd_spawn_point.second + 1, twd_spawn_point.third));
+                p.teleport(new Location(world, twd_spawn_point.first, twd_spawn_point.second, twd_spawn_point.third));
 
                 p.sendMessage(ChatColor.YELLOW + "The Walking Datalog has begun!");
                 p.sendMessage(ChatColor.YELLOW + "Defend Cassiopeia against the waves of mobs.");
@@ -127,7 +127,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     public void spawnWave() {
         int zombieAmount = (wave + 1) * 4;
         for (int i = 0; i < zombieAmount; i++) {
-            Zombie z = (Zombie)world.spawnEntity(new Location(world, 0,0,0), EntityType.ZOMBIE);
+            Zombie z = (Zombie)world.spawnEntity(new Location(world, -30,-43,52), EntityType.ZOMBIE);
 //            z.getEquipment().setHelmet(new ItemStack(Material.DIAMOND_HELMET));
 
             net.minecraft.world.entity.monster.Zombie nms_z = (net.minecraft.world.entity.monster.Zombie) ((CraftEntity) z).getHandle();
