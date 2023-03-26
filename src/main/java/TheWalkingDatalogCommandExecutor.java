@@ -75,7 +75,8 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         }
 
         if(Objects.equals(args[0], "start")) {
-            wave = 1;
+            wave = 0;
+            stage = 0;
             if(Globals.Ongoing != Globals.Gamemode.NONE){
                 player.sendMessage(ChatColor.RED + "Another gamemode is already in progress!");
                 return;
@@ -96,7 +97,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 p.teleport(new Location(world, twd_spawn_point.first, twd_spawn_point.second, twd_spawn_point.third));
 
                 p.sendMessage(ChatColor.YELLOW + "The Walking Datalog has begun!");
-                p.sendMessage(ChatColor.YELLOW + "Defend Cassiopeia against the waves of mobs.");
+                p.sendMessage(ChatColor.YELLOW + "Defend Cassiopeia against waves of mobs.");
                 p.sendMessage(ChatColor.YELLOW + "Kill mobs to obtain scorepoints and streg-euros.");
                 p.sendMessage(ChatColor.YELLOW + "Streg-euros can be exchanged for equipment and daily products like Sport-Cola in Strandvejen.");
                 p.sendMessage(ChatColor.YELLOW + "You have 3 lives! If the mobs manage to get their hands on Datalogijuice, the game will end.");
@@ -127,12 +128,13 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     public void spawnWave() {
         int zombieAmount = (wave + 1) * 4;
         for (int i = 0; i < zombieAmount; i++) {
-            Zombie z = (Zombie)world.spawnEntity(new Location(world, -30,-43,52), EntityType.ZOMBIE);
+            Zombie z = (Zombie)world.spawnEntity(new Location(world, -30,-42,52), EntityType.ZOMBIE);
 //            z.getEquipment().setHelmet(new ItemStack(Material.DIAMOND_HELMET));
 
             net.minecraft.world.entity.monster.Zombie nms_z = (net.minecraft.world.entity.monster.Zombie) ((CraftEntity) z).getHandle();
 
         }
+        mobs_remaining_current_stage = zombieAmount;
     }
 
     public Scoreboard createPointsScoreboard() {
