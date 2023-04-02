@@ -1,14 +1,19 @@
 import Utils.StringParsing;
 import Utils.Triple;
-import net.minecraft.world.entity.PathfinderMob;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.pathfinder.PathFinder;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
+//import net.minecraft.core.RegistryMaterials;
+//import net.minecraft.resources.MinecraftKey;
+//import net.minecraft.world.entity.EntityTypes;
+//import net.minecraft.world.entity.monster.EntityMonster;
+//import net.minecraft.world.entity.monster.EntityZombie;
+//import net.minecraft.world.entity.player.EntityHuman;
 import org.bukkit.*;
 import org.bukkit.block.Block;
-import org.bukkit.block.data.BlockData;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.craftbukkit.v1_18_R1.CraftWorld;
 import org.bukkit.craftbukkit.v1_18_R1.entity.CraftEntity;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
@@ -16,12 +21,12 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.inventory.ItemStack;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
+
+import java.lang.reflect.Field;
 import java.util.*;
-import net.minecraft.server.*;
 
 public class TheWalkingDatalogCommandExecutor implements CommandExecutor, Listener {
     private Map<String, SubCommand> cmds = new HashMap<>();
@@ -72,6 +77,12 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         if(args.length == 0){
             player.sendMessage(ChatColor.RED + "Wrong use - Use better");
             return;
+        }
+
+        if(Objects.equals(args[0], "spawntest")) {
+            FlanEntityType type = FlanEntityType.ZOMBIE;
+            Location loc = new Location(world, 13, -42, 149);
+            type.spawnEntity(loc);
         }
 
         if(Objects.equals(args[0], "start")) {
@@ -254,17 +265,67 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     }
 
     class EntityZombie extends net.minecraft.world.entity.monster.Zombie {
-        int dmg = 20;
+        FlanZombie fzombie;
 
-        public EntityZombie(Level world) {
-            super(world);
+        public EntityZombie(World world) {
+            super(((CraftWorld)world).getHandle());
+            fzombie = new FlanZombie(this, FlanEntityType.ZOMBIE);
         }
+
+//        @Override
+//        public boolean x() {
+//            fzombie.onTick();
+//            return super.d_();
+//        }
 //
 //        @Override
-//        public void tick() {
-//            super.tick();
-//
+//        public boolean d_() {
+//            fzombie.onTick();
+//            return super.d_();
 //        }
+
+        @Override
+        public void tick(){
+            fzombie.onTick();
+            super.tick();
+        }
+    }
+
+    class FlanZombie {
+        int dmg = 20;
+        net.minecraft.world.entity.monster.Zombie nms_zombie;
+        FlanEntityType type;
+
+        public FlanZombie(net.minecraft.world.entity.monster.Zombie nmsEntity, FlanEntityType type) {
+            this.nms_zombie = nmsEntity;
+            this.type = type;
+        }
+
+        public void onTick() {
+            World world = nms_zombie.getBukkitEntity().getWorld();
+
+            if (nms_zombie.getTarget() instanceof net.minecraft.world.entity.player.Player && world.getTime() % 20 == 0) {
+                attemptBreakBlock(getBreakableTargetBlock());
+            }
+        }
+
+        public Block getBreakableTargetBlock() {
+            Location direction = nms_zombie.getTarget().getBukkitEntity().getLocation().subtract(nms_zombie.getBukkitEntity().getLocation());
+
+            double dx = direction.getX();
+            double dz = direction.getY();
+
+            int bdx = 0;
+            int bdz = 0;
+
+            if (Math.abs(dx) > Math.abs(dz)) {
+                bdx = (dx > 0) ? 1 : -1;
+            } else {
+                bdz = (dx > 0) ? 1 : -1;
+            }
+
+            return nms_zombie.level.getWorld().getBlockAt((int) Math.floor(nms_zombie.getBlockX() + bdx), (int) Math.floor(nms_zombie.getBlockY()), (int) Math.floor(nms_zombie.getBlockZ() + bdz));
+        }
 
         void attemptBreakBlock(Block block) {
             Material type = block.getType();
@@ -274,7 +335,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
                 if (!block_health.containsKey(location)) block_health.put(location, 100);
                 int block_hp = block_health.get(location);
-                org.bukkit.entity.Entity entity = this.getBukkitEntity();
+                org.bukkit.entity.Entity entity = nms_zombie.getBukkitEntity();
 
                 if (block_hp <= dmg) {
                     EntityChangeBlockEvent event = new EntityChangeBlockEvent(entity, block, block.getBlockData());
@@ -292,6 +353,49 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             }
         }
     }
+
+    public enum FlanEntityType {
+        ZOMBIE("Zombie", 54, EntityType.ZOMBIE, net.minecraft.world.entity.monster.Zombie.class, EntityZombie.class);
+
+        private final String name;
+        private final int id;
+        private final EntityType entityType;
+        private final Class<? extends net.minecraft.world.entity.LivingEntity> nmsClass;
+        private final Class<? extends net.minecraft.world.entity.LivingEntity> flanClass;
+
+        private FlanEntityType(String name, int id, EntityType entityType, Class<? extends net.minecraft.world.entity.LivingEntity> nmsClass, Class<? extends net.minecraft.world.entity.LivingEntity> flanClass) {
+            this.name = name;
+            this.id = id;
+            this.entityType = entityType;
+            this.nmsClass = nmsClass;
+            this.flanClass = flanClass;
+        }
+
+        private net.minecraft.world.entity.LivingEntity createEntity(World world) {
+            try{
+                return this.flanClass.getConstructor(World.class).newInstance(world);
+            } catch (Exception e){
+                e.printStackTrace();
+            }
+
+            return null;
+        }
+
+        public void spawnEntity(Location location) {
+            World world = location.getWorld();
+
+            net.minecraft.world.entity.LivingEntity entity = this.createEntity(world);
+            entity.setPos(location.getX(), location.getY(), location.getZ());
+
+            world.spawnEntity(location, entityType);
+        }
+
+        public static void registerEntities() {
+            for (FlanEntityType flanEntityType : FlanEntityType.values()) {
+
+            }
+        }
+    }
 }
 
 class PlayerStatsTWD{
@@ -304,3 +408,89 @@ class PlayerStatsTWD{
     public PlayerStatsTWD(Player p) {player = p;}
 }
 
+
+
+
+
+//@SuppressWarnings("rawtypes")
+//public class CustomEntityRegistry extends RegistryMaterials {
+//
+//    private static CustomEntityRegistry instance = null;
+//
+//    private final BiMap<MinecraftKey, Class<? extends Entity>> customEntities = HashBiMap.create();
+//    private final BiMap<Class<? extends Entity>, MinecraftKey> customEntityClasses = this.customEntities.inverse();
+//    private final Map<Class<? extends Entity>, Integer> customEntityIds = new HashMap<>();
+//
+//    private final RegistryMaterials wrapped;
+//
+//    private CustomEntityRegistry(RegistryMaterials original) {
+//        this.wrapped = original;
+//    }
+//
+//    public static CustomEntityRegistry getInstance() {
+//        if (instance != null) {
+//            return instance;
+//        }
+//
+//        instance = new CustomEntityRegistry(EntityTypes.b);
+//
+//        try {
+//            //TODO: Update name on version change (RegistryMaterials)
+//            Field registryMaterialsField = EntityTypes.class.getDeclaredField("b");
+//            registryMaterialsField.setAccessible(true);
+//
+//            Field modifiersField = Field.class.getDeclaredField("modifiers");
+//            modifiersField.setAccessible(true);
+//            modifiersField.setInt(registryMaterialsField, registryMaterialsField.getModifiers() & ~Modifier.FINAL);
+//
+//            registryMaterialsField.set(null, instance);
+//        } catch (Exception e) {
+//            instance = null;
+//
+//            throw new RuntimeException("Unable to override the old entity RegistryMaterials", e);
+//        }
+//
+//        return instance;
+//    }
+//
+//    public static void registerCustomEntity(int entityId, String entityName, Class<? extends Entity> entityClass) {
+//        getInstance().putCustomEntity(entityId, entityName, entityClass);
+//    }
+//
+//    public void putCustomEntity(int entityId, String entityName, Class<? extends Entity> entityClass) {
+//        MinecraftKey minecraftKey = new MinecraftKey(entityName);
+//
+//        this.customEntities.put(minecraftKey, entityClass);
+//        this.customEntityIds.put(entityClass, entityId);
+//    }
+//
+//    @SuppressWarnings("unchecked")
+//    @Override
+//    public Class<? extends Entity> get(Object key) {
+//        if (this.customEntities.containsKey(key)) {
+//            return this.customEntities.get(key);
+//        }
+//
+//        return (Class<? extends Entity>) wrapped.get(key);
+//    }
+//
+//    @SuppressWarnings("unchecked")
+//    @Override
+//    public int a(Object key) { //TODO: Update name on version change (getId)
+//        if (this.customEntityIds.containsKey(key)) {
+//            return this.customEntityIds.get(key);
+//        }
+//
+//        return this.wrapped.a(key);
+//    }
+//
+//    @SuppressWarnings("unchecked")
+//    @Override
+//    public MinecraftKey b(Object value) { //TODO: Update name on version change (getKey)
+//        if (this.customEntityClasses.containsKey(value)) {
+//            return this.customEntityClasses.get(value);
+//        }
+//
+//        return (MinecraftKey) wrapped.b(value);
+//    }
+//}
