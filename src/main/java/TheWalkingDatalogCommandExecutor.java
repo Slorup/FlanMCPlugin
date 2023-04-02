@@ -8,6 +8,8 @@ import com.google.common.collect.HashBiMap;
 //import net.minecraft.world.entity.monster.EntityMonster;
 //import net.minecraft.world.entity.monster.EntityZombie;
 //import net.minecraft.world.entity.player.EntityHuman;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
@@ -69,9 +71,6 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     private World world;
     private ArrayList<PlayerStatsTWD> player_stats = new ArrayList<>();
     private final String config_prefix = "twd.";
-    List<Material> breakable_blocks = new ArrayList<>(Arrays.asList(Material.BLACK_TERRACOTTA, Material.BROWN_TERRACOTTA));
-    HashMap<Location, Integer> block_health = new HashMap<Location, Integer>();
-    Zombie goal_zombie;
 
     void onCommand(Player player, Command cmd, String[] args) {
         if(args.length == 0){
@@ -80,8 +79,12 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         }
 
         if(Objects.equals(args[0], "spawntest")) {
+            if(Globals.Ongoing != Globals.Gamemode.TWD) {
+                player.sendMessage(ChatColor.RED + "Another gamemode is already in progress!");
+                return;
+            }
             FlanEntityType type = FlanEntityType.ZOMBIE;
-            Location loc = new Location(world, 13, -42, 149);
+            Location loc = new Location(world, -30, -42, 44);
             type.spawnEntity(loc);
         }
 
@@ -138,13 +141,13 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
     public void spawnWave() {
         int zombieAmount = (wave + 1) * 4;
-        for (int i = 0; i < zombieAmount; i++) {
-            Zombie z = (Zombie)world.spawnEntity(new Location(world, -30,-42,52), EntityType.ZOMBIE);
-//            z.getEquipment().setHelmet(new ItemStack(Material.DIAMOND_HELMET));
-
-            net.minecraft.world.entity.monster.Zombie nms_z = (net.minecraft.world.entity.monster.Zombie) ((CraftEntity) z).getHandle();
-
-        }
+//        for (int i = 0; i < zombieAmount; i++) {
+//            Zombie z = (Zombie)world.spawnEntity(new Location(world, -30,-42,52), EntityType.ZOMBIE);
+////            z.getEquipment().setHelmet(new ItemStack(Material.DIAMOND_HELMET));
+//
+//            net.minecraft.world.entity.monster.Zombie nms_z = (net.minecraft.world.entity.monster.Zombie) ((CraftEntity) z).getHandle();
+//
+//        }
         mobs_remaining_current_stage = zombieAmount;
     }
 
@@ -153,11 +156,11 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
         Objective obj = board.registerNewObjective("points", "dummy", ChatColor.RED + "Player Info");
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
-        obj.getScore(ChatColor.GREEN + "Mobs killed: 0").setScore(999);
-        obj.getScore(ChatColor.GREEN + "Streg-euros: 0").setScore(998);
-        obj.getScore(ChatColor.GREEN + "Deaths: 0").setScore(997);
-        obj.getScore(" ").setScore(996);
-        obj.getScore(ChatColor.BLUE + "=-=Leaderboard=-=").setScore(995);
+        obj.getScore(ChatColor.GREEN + "Mobs killed: 0").setScore(9999);
+        obj.getScore(ChatColor.GREEN + "Streg-euros: 0").setScore(9998);
+        obj.getScore(ChatColor.GREEN + "Deaths: 0").setScore(9997);
+        obj.getScore(" ").setScore(9996);
+        obj.getScore(ChatColor.BLUE + "=-=Leaderboard=-=").setScore(9995);
 
         return board;
     }
@@ -264,138 +267,6 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         });
     }
 
-    class EntityZombie extends net.minecraft.world.entity.monster.Zombie {
-        FlanZombie fzombie;
-
-        public EntityZombie(World world) {
-            super(((CraftWorld)world).getHandle());
-            fzombie = new FlanZombie(this, FlanEntityType.ZOMBIE);
-        }
-
-//        @Override
-//        public boolean x() {
-//            fzombie.onTick();
-//            return super.d_();
-//        }
-//
-//        @Override
-//        public boolean d_() {
-//            fzombie.onTick();
-//            return super.d_();
-//        }
-
-        @Override
-        public void tick(){
-            fzombie.onTick();
-            super.tick();
-        }
-    }
-
-    class FlanZombie {
-        int dmg = 20;
-        net.minecraft.world.entity.monster.Zombie nms_zombie;
-        FlanEntityType type;
-
-        public FlanZombie(net.minecraft.world.entity.monster.Zombie nmsEntity, FlanEntityType type) {
-            this.nms_zombie = nmsEntity;
-            this.type = type;
-        }
-
-        public void onTick() {
-            World world = nms_zombie.getBukkitEntity().getWorld();
-
-            if (nms_zombie.getTarget() instanceof net.minecraft.world.entity.player.Player && world.getTime() % 20 == 0) {
-                attemptBreakBlock(getBreakableTargetBlock());
-            }
-        }
-
-        public Block getBreakableTargetBlock() {
-            Location direction = nms_zombie.getTarget().getBukkitEntity().getLocation().subtract(nms_zombie.getBukkitEntity().getLocation());
-
-            double dx = direction.getX();
-            double dz = direction.getY();
-
-            int bdx = 0;
-            int bdz = 0;
-
-            if (Math.abs(dx) > Math.abs(dz)) {
-                bdx = (dx > 0) ? 1 : -1;
-            } else {
-                bdz = (dx > 0) ? 1 : -1;
-            }
-
-            return nms_zombie.level.getWorld().getBlockAt((int) Math.floor(nms_zombie.getBlockX() + bdx), (int) Math.floor(nms_zombie.getBlockY()), (int) Math.floor(nms_zombie.getBlockZ() + bdz));
-        }
-
-        void attemptBreakBlock(Block block) {
-            Material type = block.getType();
-
-            if (breakable_blocks.contains(type)) {
-                Location location = block.getLocation();
-
-                if (!block_health.containsKey(location)) block_health.put(location, 100);
-                int block_hp = block_health.get(location);
-                org.bukkit.entity.Entity entity = nms_zombie.getBukkitEntity();
-
-                if (block_hp <= dmg) {
-                    EntityChangeBlockEvent event = new EntityChangeBlockEvent(entity, block, block.getBlockData());
-                    Bukkit.getServer().getPluginManager().callEvent(event);
-
-                    if (!event.isCancelled()) {
-                        entity.getWorld().playEffect(location, Effect.ZOMBIE_DESTROY_DOOR, 0);
-                        block.setType(Material.AIR);
-                        block_health.remove(location);
-                    }
-                } else {
-                    block_health.replace(location, block_hp - dmg);
-                    entity.getWorld().playEffect(location, Effect.ZOMBIE_CHEW_WOODEN_DOOR, 0);
-                }
-            }
-        }
-    }
-
-    public enum FlanEntityType {
-        ZOMBIE("Zombie", 54, EntityType.ZOMBIE, net.minecraft.world.entity.monster.Zombie.class, EntityZombie.class);
-
-        private final String name;
-        private final int id;
-        private final EntityType entityType;
-        private final Class<? extends net.minecraft.world.entity.LivingEntity> nmsClass;
-        private final Class<? extends net.minecraft.world.entity.LivingEntity> flanClass;
-
-        private FlanEntityType(String name, int id, EntityType entityType, Class<? extends net.minecraft.world.entity.LivingEntity> nmsClass, Class<? extends net.minecraft.world.entity.LivingEntity> flanClass) {
-            this.name = name;
-            this.id = id;
-            this.entityType = entityType;
-            this.nmsClass = nmsClass;
-            this.flanClass = flanClass;
-        }
-
-        private net.minecraft.world.entity.LivingEntity createEntity(World world) {
-            try{
-                return this.flanClass.getConstructor(World.class).newInstance(world);
-            } catch (Exception e){
-                e.printStackTrace();
-            }
-
-            return null;
-        }
-
-        public void spawnEntity(Location location) {
-            World world = location.getWorld();
-
-            net.minecraft.world.entity.LivingEntity entity = this.createEntity(world);
-            entity.setPos(location.getX(), location.getY(), location.getZ());
-
-            world.spawnEntity(location, entityType);
-        }
-
-        public static void registerEntities() {
-            for (FlanEntityType flanEntityType : FlanEntityType.values()) {
-
-            }
-        }
-    }
 }
 
 class PlayerStatsTWD{
@@ -407,9 +278,6 @@ class PlayerStatsTWD{
 
     public PlayerStatsTWD(Player p) {player = p;}
 }
-
-
-
 
 
 //@SuppressWarnings("rawtypes")

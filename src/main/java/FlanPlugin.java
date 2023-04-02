@@ -75,7 +75,7 @@ public class FlanPlugin extends JavaPlugin implements Listener {
         getCommand(Globals.twdCommandName).setExecutor(twdCmd);
         TheWalkingDatalog twd = new TheWalkingDatalog();
         twdCmd.registerCommand("normal", twd);
-        TheWalkingDatalog.FlanEntityType.registerEntities();
+//        TheWalkingDatalog.FlanEntityType.registerEntities();
 
         //General
         getCommand("spawn").setExecutor(new SpawnCommand());
