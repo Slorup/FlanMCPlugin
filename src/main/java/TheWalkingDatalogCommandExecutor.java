@@ -67,7 +67,8 @@ public class TheWalkingDatalogCommandExecutor implements CommandExecutor, Listen
 class TheWalkingDatalog extends SubCommand implements Listener {
     int wave = 0;
     int stage = 0;
-    int mobs_remaining_current_stage = 0;
+    int mobs_on_map = 0;
+
     private World world;
     private ArrayList<PlayerStatsTWD> player_stats = new ArrayList<>();
     private final String config_prefix = "twd.";
@@ -112,8 +113,8 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
                 p.sendMessage(ChatColor.YELLOW + "The Walking Datalog has begun!");
                 p.sendMessage(ChatColor.YELLOW + "Defend Cassiopeia against waves of mobs.");
-                p.sendMessage(ChatColor.YELLOW + "Kill mobs to obtain scorepoints and streg-euros.");
-                p.sendMessage(ChatColor.YELLOW + "Streg-euros can be exchanged for equipment and daily products like Sport-Cola in Strandvejen.");
+                p.sendMessage(ChatColor.YELLOW + "Kill mobs to obtain scorepoints and stregdollars.");
+                p.sendMessage(ChatColor.YELLOW + "Stregdollars can be exchanged for equipment and daily products like Sport-Cola in Strandvejen.");
                 p.sendMessage(ChatColor.YELLOW + "You have 3 lives! If the mobs manage to get their hands on Datalogijuice, the game will end.");
                 p.sendMessage(ChatColor.YELLOW + "Player ranking is determined from the scorepoints.");
 
@@ -148,7 +149,11 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 //            net.minecraft.world.entity.monster.Zombie nms_z = (net.minecraft.world.entity.monster.Zombie) ((CraftEntity) z).getHandle();
 //
 //        }
-        mobs_remaining_current_stage = zombieAmount;
+//        mobs_remaining_current_stage = zombieAmount;
+    }
+
+    public void spawnZombie() {
+
     }
 
     public Scoreboard createPointsScoreboard() {
@@ -157,7 +162,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         Objective obj = board.registerNewObjective("points", "dummy", ChatColor.RED + "Player Info");
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
         obj.getScore(ChatColor.GREEN + "Mobs killed: 0").setScore(9999);
-        obj.getScore(ChatColor.GREEN + "Streg-euros: 0").setScore(9998);
+        obj.getScore(ChatColor.GREEN + "Stregdollars: 0").setScore(9998);
         obj.getScore(ChatColor.GREEN + "Deaths: 0").setScore(9997);
         obj.getScore(" ").setScore(9996);
         obj.getScore(ChatColor.BLUE + "=-=Leaderboard=-=").setScore(9995);
@@ -179,7 +184,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         Objective obj = sb.registerNewObjective("points", "dummy", ChatColor.RED + "Player Info");
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
         obj.getScore(ChatColor.GREEN + "Mobs killed: " + ps.mobs_killed).setScore(999);
-        obj.getScore(ChatColor.GREEN + "Streg-euros: " + ps.stregdollars).setScore(998);
+        obj.getScore(ChatColor.GREEN + "Stregdollars: " + ps.stregdollars).setScore(998);
         obj.getScore(ChatColor.GREEN + "Deaths: " + ps.deaths).setScore(997);
         obj.getScore(" ").setScore(996);
         obj.getScore(ChatColor.BLUE + "=-=Leaderboard=-=").setScore(995);
@@ -207,11 +212,11 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             }
         }
 
-        mobs_remaining_current_stage--;
-        if (mobs_remaining_current_stage == 0) {
-            wave++;
-            spawnWave();
-        }
+        mobs_on_map--;
+//        if (mobs_remaining_current_stage == 0) {
+//            wave++;
+//            spawnWave();
+//        }
     }
 
     public void stopGame() {

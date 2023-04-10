@@ -1,19 +1,29 @@
+import jdk.jfr.Timespan;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.event.entity.EntityChangeBlockEvent;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
+import java.util.Map.Entry;
+
+import static java.util.Map.entry;
 
 public class FlanZombie {
-    int dmg = 20;
+    int base_dmg = 1;
     net.minecraft.world.entity.monster.Zombie nms_zombie;
     FlanEntityType type;
-    List<Material> breakable_blocks = new ArrayList<>(Arrays.asList(Material.BLACK_TERRACOTTA, Material.BROWN_TERRACOTTA));
-    HashMap<Location, Integer> block_health = new HashMap<Location, Integer>();
+    int tick = 0;
+
+//    List<Material> breakable_blocks = new ArrayList<>(Arrays.asList(Material.BLACK_TERRACOTTA, Material.BROWN_TERRACOTTA));
+
+    Map<Material, Integer> block_to_base_hp = Map.ofEntries(
+            entry(Material.BLACK_TERRACOTTA, 5) //TODO: Insert more blocks here
+    );
+
+    int dmg_multiplier = 1;
+
+    Map<Location, Integer> block_location_to_remaining_hp = new HashMap<Location, Integer>();
 
     public FlanZombie(net.minecraft.world.entity.monster.Zombie nmsEntity, FlanEntityType type) {
         this.nms_zombie = nmsEntity;
@@ -25,8 +35,11 @@ public class FlanZombie {
 
     public void onTick() {
         World world = nms_zombie.getBukkitEntity().getWorld();
+        tick++;
+        tick = tick % 10;
 
-        if (nms_zombie.getTarget() instanceof net.minecraft.world.entity.player.Player && world.getTime() % 20 == 0) {
+        //Once a second, damage block
+        if (nms_zombie.getTarget() instanceof net.minecraft.world.entity.player.Player && tick == 0) {
             attemptBreakBlock(getBreakableTargetBlock());
             attemptBreakBlock(getBreakableTargetBlock().getRelative(BlockFace.UP));
         }
@@ -53,12 +66,14 @@ public class FlanZombie {
     void attemptBreakBlock(Block block) {
         Material type = block.getType();
 
-        if (breakable_blocks.contains(type)) {
+        if (block_to_base_hp.containsKey(type)) {
             Location location = block.getLocation();
 
-            if (!block_health.containsKey(location)) block_health.put(location, 100);
-            int block_hp = block_health.get(location);
+            if (!block_location_to_remaining_hp.containsKey(location)) block_location_to_remaining_hp.put(location, block_to_base_hp.get(type));
+            int block_hp = block_location_to_remaining_hp.get(location);
             org.bukkit.entity.Entity entity = nms_zombie.getBukkitEntity();
+
+            int dmg = base_dmg * dmg_multiplier;
 
             if (block_hp <= dmg) {
                 EntityChangeBlockEvent event = new EntityChangeBlockEvent(entity, block, block.getBlockData());
@@ -67,10 +82,10 @@ public class FlanZombie {
                 if (!event.isCancelled()) {
                     entity.getWorld().playEffect(location, Effect.ZOMBIE_DESTROY_DOOR, 0);
                     block.setType(Material.AIR);
-                    block_health.remove(location);
+                    block_location_to_remaining_hp.remove(location);
                 }
             } else {
-                block_health.replace(location, block_hp - dmg);
+                block_location_to_remaining_hp.replace(location, block_hp - dmg);
                 entity.getWorld().playEffect(location, Effect.ZOMBIE_CHEW_WOODEN_DOOR, 0);
             }
         }
