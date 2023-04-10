@@ -10,6 +10,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.File;
 import java.io.IOException;
@@ -46,8 +47,11 @@ class Globals{
 }
 
 public class FlanPlugin extends JavaPlugin implements Listener {
+    private static FlanPlugin instance;
+
     @Override
     public void onEnable() {
+        instance = this;
         getLogger().info("FlanPlugin enabled!");
 
         getConfig().options().copyDefaults();
@@ -95,6 +99,10 @@ public class FlanPlugin extends JavaPlugin implements Listener {
     public void onDisable() {
         getLogger().info("FlanPlugin disabled!");
     }
+
+    public static FlanPlugin getInstance(){
+        return instance;
+    }
 }
 
 class SpawnCommand implements CommandExecutor{
@@ -115,7 +123,7 @@ class SpawnCommand implements CommandExecutor{
     }
 }
 
-abstract class SubCommand{
+abstract class SubCommand {
     abstract void onCommand(Player player, Command cmd, String[] args);
 }
 

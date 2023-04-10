@@ -31,7 +31,7 @@ public enum FlanEntityType {
         return null;
     }
 
-    public void spawnEntity(Location location) {
+    public net.minecraft.world.entity.LivingEntity spawnEntity(Location location) {
         Level world = ((CraftWorld) location.getWorld()).getHandle();
         World w = world.getWorld();
 
@@ -49,6 +49,8 @@ public enum FlanEntityType {
         entity.setPos(location.getX(), location.getY(), location.getZ());
 
         world.addFreshEntity(entity);
+
+        return entity;
     }
 
 //        public static void registerEntities() {

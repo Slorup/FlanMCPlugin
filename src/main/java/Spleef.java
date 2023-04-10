@@ -247,6 +247,7 @@ public class Spleef extends SubCommand implements Listener {
     public void givePlayerStartItems(Player p){
         p.getInventory().addItem(new ItemStack(Material.SNOWBALL, 2000));
     }
+
 }
 
 

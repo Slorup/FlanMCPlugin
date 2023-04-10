@@ -6,7 +6,6 @@ public class EntityZombie extends net.minecraft.world.entity.monster.Zombie {
 
     public EntityZombie(World world) {
         super(((CraftWorld)world).getHandle());
-        System.out.println("Constructor");
         this.fzombie = new FlanZombie(this, FlanEntityType.ZOMBIE);
     }
 
