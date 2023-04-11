@@ -114,6 +114,8 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     ArrayList<Location> mob_spawn_locs = new ArrayList<>();
     ArrayList<Location> food_drop_locs = new ArrayList<>();
     Location player_spawn;
+    Location zombie_spawn;
+    Location zombie_portal;
     Location shop_location;
     Random rnd = new Random();
     private final String config_prefix = "twd.";
@@ -199,6 +201,14 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             String twd_spawn = FlanPluginConfig.get().getString(config_prefix + "spawn");
             Triple<Integer, Integer, Integer> twd_spawn_point = StringParsing.getCoordsFromConfigLocation(twd_spawn);
             player_spawn = new Location(world, twd_spawn_point.first, twd_spawn_point.second, twd_spawn_point.third);
+
+            String twd_zombie_spawn = FlanPluginConfig.get().getString(config_prefix + "zombie_spawn");
+            Triple<Integer, Integer, Integer> twd_zombie_spawn_point = StringParsing.getCoordsFromConfigLocation(twd_zombie_spawn);
+            zombie_spawn = new Location(world, twd_zombie_spawn_point.first, twd_zombie_spawn_point.second, twd_zombie_spawn_point.third);
+
+            String twd_zombie_portal = FlanPluginConfig.get().getString(config_prefix + "zombie_portal");
+            Triple<Integer, Integer, Integer> twd_zombie_portal_point = StringParsing.getCoordsFromConfigLocation(twd_zombie_portal);
+            zombie_portal = new Location(world, twd_zombie_portal_point.first, twd_zombie_portal_point.second, twd_zombie_portal_point.third);
 
             for (Player p : Bukkit.getOnlinePlayers()) {
                 player_stats.add(new PlayerStatsTWD(p));
@@ -296,6 +306,16 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                     }
                     next_hunger_time = System.currentTimeMillis() + (hunger_ticks / 20) * 1000;
                 }
+
+
+                // Spawn zombies that are inside the portal
+                for (Player p : Bukkit.getOnlinePlayers()) {
+                    if (p.getLocation().distance(zombie_portal) <= 2) {
+                        Location l = getRandomMobSpawnLoc();
+                        p.teleport(l);
+                    }
+                }
+
             }
         }.runTaskTimer(FlanPlugin.getInstance(), 1L, 1L);
     }
@@ -430,8 +450,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         if(playerStats == null) return;
 
         if(playerStats.is_zombie){
-            Location l = getRandomMobSpawnLoc();
-            e.setRespawnLocation(l);
+            e.setRespawnLocation(zombie_spawn);
             giveStartEquipmentZombiePlayer(e.getPlayer());
         } else {
             e.setRespawnLocation(player_spawn);
