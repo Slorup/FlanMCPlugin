@@ -163,6 +163,8 @@ public class Spleef extends SubCommand implements Listener {
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent e){
+        if(Globals.Ongoing != Globals.Gamemode.SPLEEF) return;
+
         for(PlayerSpleefStats ps : player_stats){
             if(e.getEntity().getDisplayName().equals(ps.player.getDisplayName())){
                 ps.alive = false;
@@ -177,6 +179,8 @@ public class Spleef extends SubCommand implements Listener {
 
     @EventHandler
     public void onPlayerLogOut(PlayerQuitEvent e){
+        if(Globals.Ongoing != Globals.Gamemode.SPLEEF) return;
+
         for(PlayerSpleefStats ps : player_stats){
             if(e.getPlayer().getDisplayName().equals(ps.player.getDisplayName())){
                 ps.alive = false;

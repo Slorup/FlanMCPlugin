@@ -184,8 +184,8 @@ class NormalSnowballFight extends SubCommand implements Listener {
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent e){
-        e.getDrops().clear();
         if(Globals.Ongoing != Globals.Gamemode.SNOWBALLFIGHT) return;
+        e.getDrops().clear();
 
         Player killed = e.getEntity();
         Player killer = killed.getKiller();

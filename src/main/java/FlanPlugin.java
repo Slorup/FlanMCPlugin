@@ -7,7 +7,9 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -102,6 +104,13 @@ public class FlanPlugin extends JavaPlugin implements Listener {
 
     public static FlanPlugin getInstance(){
         return instance;
+    }
+
+    @EventHandler
+    public void onBlockBreak(BlockBreakEvent e) {
+        if (Globals.Ongoing == Globals.Gamemode.NONE) {
+            e.setCancelled(true);
+        }
     }
 }
 

@@ -10,11 +10,17 @@ import org.bukkit.*;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
@@ -24,17 +30,19 @@ import org.bukkit.scoreboard.Scoreboard;
 
 import java.util.*;
 
-//TODO: Make Zombies target without vision - Doneish
-//TODO: Die by hunger                      - Doneish
-//TODO: Saturation zones                   -
-//TODO: Shop
-//TODO: Zombie mode after death
-//TODO: Points balancing
-//TODO: Zombie equipment
-//TODO: Block destruction over time
-//TODO: Player Block Destruction
-//TODO: Admin only commands
-//TODO: Join/leave stuff
+//TODO: Make Zombies target without vision - Done
+//TODO: Die by hunger                      - Doneish (Make sure difficulty is set to hard)
+//TODO: Food drops                         - Done
+//TODO: Shop                               -
+//TODO: Zombie mode after death            - Done
+//TODO: Points balancing                   -
+//TODO: Zombie equipment                   - Done
+//TODO: Block destruction over time        -
+//TODO: Player Block Destruction           -
+//TODO: Update Rules                       -
+//TODO: Winning condition                  -
+//TODO: Teams                              -
+//TODO: Set server difficulty
 
 public class TheWalkingDatalogCommandExecutor implements CommandExecutor, Listener {
     private Map<String, SubCommand> cmds = new HashMap<>();
@@ -71,6 +79,7 @@ public class TheWalkingDatalogCommandExecutor implements CommandExecutor, Listen
 }
 
 class TheWalkingDatalog extends SubCommand implements Listener {
+    Set<Material> destoryableBlocks = new HashSet<>(Arrays.asList(Material.COBBLESTONE));
     int wave = 0;
     int stage = 0;
     int mobs_on_map = 0;
@@ -82,12 +91,20 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     private World world;
     private ArrayList<PlayerStatsTWD> player_stats = new ArrayList<>();
     ArrayList<Location> mob_spawn_locs = new ArrayList<>();
+    ArrayList<Location> food_drop_locs = new ArrayList<>();
+    Location player_spawn;
     Random rnd = new Random();
     private final String config_prefix = "twd.";
     long start_time;
-    BukkitTask hunger_task;
+    BukkitTask tick_task;
+    long hunger_ticks;
+    long next_hunger_time;
+    long food_drop_ticks;
+    long next_food_drop_time;
 
     void onCommand(Player player, Command cmd, String[] args) {
+        if(!player.isOp()) return;
+
         if (args.length == 0) {
             player.sendMessage(ChatColor.RED + "Wrong use - Use better");
             return;
@@ -112,12 +129,31 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             FlanPluginConfig.get().set(config_prefix + "mobspawns", StringParsing.listToConfigString(spawns));
             FlanPluginConfig.get().options().copyDefaults(true);
             FlanPluginConfig.save();
-            player.sendMessage("Added new location: " + newLoc);
+            player.sendMessage("Added new mob spawn location: " + newLoc);
+            return;
+        }
+
+        if (Objects.equals(args[0], "add_food_spawn")) {
+            Location loc = player.getLocation();
+            ArrayList<String> spawns = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "foodlocs"));
+
+            String newLoc = String.format("(%s;%s;%s)", loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+            spawns.add(newLoc);
+            FlanPluginConfig.get().set(config_prefix + "foodlocs", StringParsing.listToConfigString(spawns));
+            FlanPluginConfig.get().options().copyDefaults(true);
+            FlanPluginConfig.save();
+            player.sendMessage("Added new food drop location: " + newLoc);
             return;
         }
 
         if (Objects.equals(args[0], "mobspawns")) {
             ArrayList<String> spawns = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "mobspawns"));
+            player.sendMessage(spawns.toString());
+            return;
+        }
+
+        if (Objects.equals(args[0], "foodlocs")) {
+            ArrayList<String> spawns = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "foodlocs"));
             player.sendMessage(spawns.toString());
             return;
         }
@@ -131,10 +167,17 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             }
             Globals.Ongoing = Globals.Gamemode.TWD;
             player_stats = new ArrayList<>();
+            mob_spawn_locs = new ArrayList<>();
+            food_drop_locs = new ArrayList<>();
             world = player.getWorld();
+            hunger_ticks = 400;
+            food_drop_ticks = 400;
+            next_hunger_time = System.currentTimeMillis() + (hunger_ticks / 20) * 1000;
+            next_food_drop_time = System.currentTimeMillis() + (food_drop_ticks / 20) * 1000;
 
             String twd_spawn = FlanPluginConfig.get().getString(config_prefix + "spawn");
             Triple<Integer, Integer, Integer> twd_spawn_point = StringParsing.getCoordsFromConfigLocation(twd_spawn);
+            player_spawn = new Location(world, twd_spawn_point.first, twd_spawn_point.second, twd_spawn_point.third);
 
             for (Player p : Bukkit.getOnlinePlayers()) {
                 player_stats.add(new PlayerStatsTWD(p));
@@ -143,8 +186,9 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 p.setHealth(20.0);
                 p.setFoodLevel(20);
                 p.setSaturation(0);
+                giveStartEquipmentPlayer(p);
 
-                p.teleport(new Location(world, twd_spawn_point.first, twd_spawn_point.second, twd_spawn_point.third));
+                p.teleport(player_spawn);
 
                 p.sendMessage(ChatColor.YELLOW + "The Walking Datalog has begun!");
                 p.sendMessage(ChatColor.YELLOW + "Defend Cassiopeia against waves of mobs.");
@@ -160,24 +204,22 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 p.setScoreboard(sb);
             }
 
-            ArrayList<String> spawns = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "mobspawns"));
-            for (String s : spawns) {
+            ArrayList<String> mob_spawns = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "mobspawns"));
+            for (String s : mob_spawns) {
                 Triple<Integer, Integer, Integer> spawnLoc = StringParsing.getCoordsFromConfigLocation(s);
                 mob_spawn_locs.add(new Location(world, spawnLoc.first, spawnLoc.second, spawnLoc.third));
+            }
+
+            ArrayList<String> food_spawns = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "foodlocs"));
+            for (String s : food_spawns) {
+                Triple<Integer, Integer, Integer> spawnLoc = StringParsing.getCoordsFromConfigLocation(s);
+                food_drop_locs.add(new Location(world, spawnLoc.first, spawnLoc.second, spawnLoc.third));
             }
 
             start_time = System.currentTimeMillis() / 1000;
             spawnZombie();
 
-            hunger_task = new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (Globals.Ongoing != Globals.Gamemode.TWD) return;
-                    for (Player p : world.getPlayers()) {
-                        p.setFoodLevel(p.getFoodLevel() - 1);
-                    }
-                }
-            }.runTaskTimer(FlanPlugin.getInstance(), 80L, 80L);
+            setupTickTimer();
 
             return;
         }
@@ -191,27 +233,52 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 return;
             }
             stopGame();
-            hunger_task.cancel();
+            tick_task.cancel();
             return;
         }
     }
-
-//    public void spawnWave() {
-//        int zombieAmount = (wave + 1) * 4;
-////        for (int i = 0; i < zombieAmount; i++) {
-////            Zombie z = (Zombie)world.spawnEntity(new Location(world, -30,-42,52), EntityType.ZOMBIE);
-//////            z.getEquipment().setHelmet(new ItemStack(Material.DIAMOND_HELMET));
-////
-////            net.minecraft.world.entity.monster.Zombie nms_z = (net.minecraft.world.entity.monster.Zombie) ((CraftEntity) z).getHandle();
-////
-////        }
-////        mobs_remaining_current_stage = zombieAmount;
-//    }
 
     public void debugMessage(String s) {
         for (Player p : world.getPlayers()) {
             p.sendMessage(s);
         }
+    }
+
+    public void setupTickTimer() {
+        tick_task = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (Globals.Ongoing != Globals.Gamemode.TWD) return;
+
+                if(System.currentTimeMillis() >= next_food_drop_time) {
+                    int players_alive = getAlivePlayerCount();
+                    int num_food_drops = players_alive / 4 + 1;
+                    int num_food_locs_total = food_drop_locs.size();
+                    int food_drops_per_loc = num_food_drops / num_food_locs_total + 1;
+                    for (int i = 0; i < food_drop_locs.size(); i++) {
+                        Location l = food_drop_locs.get(i);
+                        world.dropItemNaturally(l, new ItemStack(Material.BREAD, food_drops_per_loc));
+                    }
+
+                    next_food_drop_time = System.currentTimeMillis() + (food_drop_ticks / 20) * 1000;
+                }
+
+                if(System.currentTimeMillis() >= next_hunger_time) {
+                    for (Player p : world.getPlayers()) {
+                        p.setFoodLevel(p.getFoodLevel() - 1);
+                    }
+                    next_hunger_time = System.currentTimeMillis() + (hunger_ticks / 20) * 1000;
+                }
+            }
+        }.runTaskTimer(FlanPlugin.getInstance(), 1L, 1L);
+    }
+
+    public int getAlivePlayerCount() {
+        int i = 0;
+        for (PlayerStatsTWD ps : player_stats) {
+            if (!ps.is_zombie) i++;
+        }
+        return i;
     }
 
     public void spawnZombie() {
@@ -276,25 +343,126 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     }
 
     @EventHandler
+    public void onPlayerRespawnEvent(PlayerRespawnEvent e){
+        if(Globals.Ongoing != Globals.Gamemode.TWD) return;
+
+        PlayerStatsTWD playerStats = getPlayerStatsFromPlayer(e.getPlayer());
+
+        if(playerStats == null) return;
+
+        if(playerStats.is_zombie){
+            Location l = getRandomMobSpawnLoc();
+            e.setRespawnLocation(l);
+            giveStartEquipmentZombiePlayer(e.getPlayer());
+        } else {
+            e.setRespawnLocation(player_spawn);
+            giveStartEquipmentPlayer(e.getPlayer());
+        }
+    }
+
+    public void giveStartEquipmentPlayer(Player p) {
+        ItemStack weapon = new ItemStack(Material.DIAMOND_PICKAXE);
+        weapon.addEnchantment(Enchantment.DURABILITY, 3);
+        p.getInventory().addItem(weapon);
+    }
+
+    public void giveStartEquipmentZombiePlayer(Player p){
+        ItemStack zombie_head = new ItemStack(Material.ZOMBIE_HEAD);
+        zombie_head.addEnchantment(Enchantment.BINDING_CURSE, 1);
+        p.getInventory().setHelmet(zombie_head);
+
+        ItemStack leather_armor = new ItemStack(Material.LEATHER_CHESTPLATE);
+        ItemStack leather_leggings = new ItemStack(Material.LEATHER_LEGGINGS);
+        ItemStack leather_boots = new ItemStack(Material.LEATHER_BOOTS);
+        leather_armor.addEnchantment(Enchantment.BINDING_CURSE, 1);
+        leather_leggings.addEnchantment(Enchantment.BINDING_CURSE, 1);
+        leather_boots.addEnchantment(Enchantment.BINDING_CURSE, 1);
+        p.getInventory().setChestplate(leather_armor);
+        p.getInventory().setBoots(leather_boots);
+        p.getInventory().setLeggings(leather_leggings);
+
+    }
+
+    @EventHandler
+    public void onEntityDamageByEntityEvent(EntityDamageByEntityEvent e) {
+        if(Globals.Ongoing != Globals.Gamemode.TWD) return;
+
+        if (e.getEntity() instanceof Player && e.getDamager() instanceof Player) {
+            Player target = (Player)e.getEntity();
+            Player source = (Player)e.getDamager();
+
+            PlayerStatsTWD targetStats = getPlayerStatsFromPlayer(target);
+            PlayerStatsTWD sourceStats = getPlayerStatsFromPlayer(source);
+
+            if(targetStats == null || sourceStats == null) return;
+
+            if (sourceStats.is_zombie && targetStats.is_zombie) {
+                e.setCancelled(true);
+            }
+            if (!sourceStats.is_zombie && !targetStats.is_zombie){
+                e.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler
+    public void onBlockBreak(BlockBreakEvent e) {
+        if(Globals.Ongoing != Globals.Gamemode.TWD) return;
+
+        e.setDropItems(false);
+
+        if (!destoryableBlocks.contains(e.getBlock().getType())) {
+            e.setCancelled(true);
+        }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent e) {
+        if(Globals.Ongoing != Globals.Gamemode.TWD) return;
+
+        e.getPlayer().setHealth(0);
+        //TODO: Fix player join/leave problems
+    }
+
+    @EventHandler
     public void onPlayerDeath(PlayerDeathEvent e) {
-        //TODO
+        if(Globals.Ongoing != Globals.Gamemode.TWD) return;
+
+        PlayerStatsTWD playerStats = getPlayerStatsFromPlayer(e.getEntity());
+        if (playerStats != null) {
+            playerStats.is_zombie = true;
+            playerStats.deaths++;
+            updateScoreboardWithPlayerStats(playerStats);
+        }
+
+        if(e.getEntity().getKiller() != null) {
+            PlayerStatsTWD killerStats = getPlayerStatsFromPlayer(e.getEntity().getKiller());
+            if (killerStats != null) {
+                killerStats.players_killed++;
+                updateScoreboardWithPlayerStats(killerStats);
+            }
+        }
+
+        //TODO: Check if game is over
     }
 
     @EventHandler
     public void onEntityDeath(EntityDeathEvent e) {
+        if(Globals.Ongoing != Globals.Gamemode.TWD) return;
+
         e.setDroppedExp(0);
         e.getDrops().clear();
 
         if (!(e.getEntity() instanceof Monster)) return;
 
-        Player killer = e.getEntity().getKiller();
-        for (PlayerStatsTWD ps : player_stats) {
-            if (ps.player == killer) {
-                ps.mobs_killed++;
-                ps.points += zombie_start_points;
-                ps.stregdollars += zombie_start_points;
+        if(e.getEntity().getKiller() != null) {
+            PlayerStatsTWD killerStats = getPlayerStatsFromPlayer(e.getEntity().getKiller());
+            if (killerStats != null) {
+                killerStats.mobs_killed++;
+                killerStats.points += zombie_start_points;
+                killerStats.stregdollars += zombie_start_points;
                 //TODO: Scaling points for harder mobs
-                updateScoreboardWithPlayerStats(ps);
+                updateScoreboardWithPlayerStats(killerStats);
             }
         }
 
@@ -351,8 +519,11 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
     }
 
-    public void giveStartEquipment(Player p) {
-        //TODO:
+    public PlayerStatsTWD getPlayerStatsFromPlayer(Player p) {
+        for (PlayerStatsTWD ps : player_stats) {
+            if (ps.player == p) return ps;
+        }
+        return null;
     }
 
     private void sortPlayerStatsByPoints() {
@@ -367,92 +538,10 @@ class PlayerStatsTWD{
     public Player player;
     public int deaths = 0;
     public int mobs_killed = 0;
+    public int players_killed = 0;
+    public boolean is_zombie = false;
     public int points = 0;
     public int stregdollars = 0;
 
     public PlayerStatsTWD(Player p) {player = p;}
 }
-
-
-//@SuppressWarnings("rawtypes")
-//public class CustomEntityRegistry extends RegistryMaterials {
-//
-//    private static CustomEntityRegistry instance = null;
-//
-//    private final BiMap<MinecraftKey, Class<? extends Entity>> customEntities = HashBiMap.create();
-//    private final BiMap<Class<? extends Entity>, MinecraftKey> customEntityClasses = this.customEntities.inverse();
-//    private final Map<Class<? extends Entity>, Integer> customEntityIds = new HashMap<>();
-//
-//    private final RegistryMaterials wrapped;
-//
-//    private CustomEntityRegistry(RegistryMaterials original) {
-//        this.wrapped = original;
-//    }
-//
-//    public static CustomEntityRegistry getInstance() {
-//        if (instance != null) {
-//            return instance;
-//        }
-//
-//        instance = new CustomEntityRegistry(EntityTypes.b);
-//
-//        try {
-//            //TODO: Update name on version change (RegistryMaterials)
-//            Field registryMaterialsField = EntityTypes.class.getDeclaredField("b");
-//            registryMaterialsField.setAccessible(true);
-//
-//            Field modifiersField = Field.class.getDeclaredField("modifiers");
-//            modifiersField.setAccessible(true);
-//            modifiersField.setInt(registryMaterialsField, registryMaterialsField.getModifiers() & ~Modifier.FINAL);
-//
-//            registryMaterialsField.set(null, instance);
-//        } catch (Exception e) {
-//            instance = null;
-//
-//            throw new RuntimeException("Unable to override the old entity RegistryMaterials", e);
-//        }
-//
-//        return instance;
-//    }
-//
-//    public static void registerCustomEntity(int entityId, String entityName, Class<? extends Entity> entityClass) {
-//        getInstance().putCustomEntity(entityId, entityName, entityClass);
-//    }
-//
-//    public void putCustomEntity(int entityId, String entityName, Class<? extends Entity> entityClass) {
-//        MinecraftKey minecraftKey = new MinecraftKey(entityName);
-//
-//        this.customEntities.put(minecraftKey, entityClass);
-//        this.customEntityIds.put(entityClass, entityId);
-//    }
-//
-//    @SuppressWarnings("unchecked")
-//    @Override
-//    public Class<? extends Entity> get(Object key) {
-//        if (this.customEntities.containsKey(key)) {
-//            return this.customEntities.get(key);
-//        }
-//
-//        return (Class<? extends Entity>) wrapped.get(key);
-//    }
-//
-//    @SuppressWarnings("unchecked")
-//    @Override
-//    public int a(Object key) { //TODO: Update name on version change (getId)
-//        if (this.customEntityIds.containsKey(key)) {
-//            return this.customEntityIds.get(key);
-//        }
-//
-//        return this.wrapped.a(key);
-//    }
-//
-//    @SuppressWarnings("unchecked")
-//    @Override
-//    public MinecraftKey b(Object value) { //TODO: Update name on version change (getKey)
-//        if (this.customEntityClasses.containsKey(value)) {
-//            return this.customEntityClasses.get(value);
-//        }
-//
-//        return (MinecraftKey) wrapped.b(value);
-//    }
-//}
