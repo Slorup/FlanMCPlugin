@@ -109,7 +109,9 @@ public class FlanPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onBlockBreak(BlockBreakEvent e) {
         if (Globals.Ongoing == Globals.Gamemode.NONE) {
-            e.setCancelled(true);
+            if(!e.getPlayer().isOp()) {
+                e.setCancelled(true);
+            }
         }
     }
 }
