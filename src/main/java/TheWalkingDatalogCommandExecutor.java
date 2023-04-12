@@ -8,8 +8,6 @@ import Utils.Triple;
 //import net.minecraft.world.entity.player.EntityHuman;
 import org.bukkit.*;
 import org.bukkit.block.Chest;
-import org.bukkit.block.DoubleChest;
-import org.bukkit.block.data.BlockData;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -26,14 +24,15 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.ScoreboardManager;
 
 import java.util.*;
+import java.util.stream.Stream;
 
 import static java.util.Map.entry;
 
@@ -117,7 +116,10 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     long hunger_ticks;
     long next_hunger_time;
     long food_drop_ticks;
-    long next_food_drop_time;
+    long last_food_drop_time;
+
+    int num_teams = -1;
+    List<Team> teams;
 
     void onCommand(Player player, Command cmd, String[] args) {
         if(!player.isOp()) return;
@@ -175,6 +177,46 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             return;
         }
 
+        if (Objects.equals(args[0], "set_num_teams")) {
+            player.sendMessage("Setting number of teams to " + args[1]);
+            num_teams = Integer.parseInt(args[1]);
+        }
+
+        if (Objects.equals(args[0], "set_alive")) {
+            if (!Bukkit.getOnlinePlayers().stream().anyMatch(p -> p.getName().equals(args[1]))) {
+                return;
+            }
+            player.sendMessage("Setting " + args[1] + " as alive");
+            List<String> alive_players = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "alive_players"));
+            alive_players.add(args[1]);
+            FlanPluginConfig.get().set(config_prefix + "alive_players", StringParsing.listToConfigString(alive_players));
+            FlanPluginConfig.get().options().copyDefaults(true);
+            FlanPluginConfig.save();
+        }
+
+        if (Objects.equals(args[0], "set_zombie")) {
+            if (!Bukkit.getOnlinePlayers().stream().anyMatch(p -> p.getName().equals(args[1]))) {
+                return;
+            }
+            player.sendMessage("Setting " + args[1] + " as zombie");
+            ArrayList<String> alive_players = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "alive_players"));
+            alive_players.remove(args[1]);
+            FlanPluginConfig.get().set(config_prefix + "alive_players", StringParsing.listToConfigString(alive_players));
+            FlanPluginConfig.get().options().copyDefaults(true);
+            FlanPluginConfig.save();
+        }
+
+        if (Objects.equals(args[0], "list_alive")) {
+            player.sendMessage("Alive players: " + FlanPluginConfig.get().getString(config_prefix + "alive_players"));
+        }
+
+        if (Objects.equals(args[0], "reset")) {
+            player.sendMessage("Resetting alive_players");
+            FlanPluginConfig.get().set(config_prefix + "alive_players", "none");
+            FlanPluginConfig.get().options().copyDefaults(true);
+            FlanPluginConfig.save();
+        }
+
         if (Objects.equals(args[0], "start")) {
             wave = 0;
             stage = 0;
@@ -182,15 +224,30 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 player.sendMessage(ChatColor.RED + "Another gamemode is already in progress!");
                 return;
             }
+
+            if (num_teams == -1) {
+                player.sendMessage(ChatColor.RED + "ERROR: you need to set the number of teams!");
+                return;
+            }
+
+            String alive_players = FlanPluginConfig.get().getString(config_prefix + "alive_players");
+            if (Objects.equals(alive_players, "none")) {
+                player.sendMessage("No saved alive players, adding everyone");
+                List<String> s = Bukkit.getOnlinePlayers().stream().map(it -> it.getName()).toList();
+                FlanPluginConfig.get().set(config_prefix + "alive_players", StringParsing.listToConfigString(s));
+                FlanPluginConfig.get().options().copyDefaults(true);
+                FlanPluginConfig.save();
+            }
+
             Globals.Ongoing = Globals.Gamemode.TWD;
             player_stats = new ArrayList<>();
             mob_spawn_locs = new ArrayList<>();
             food_drop_locs = new ArrayList<>();
             world = player.getWorld();
-            hunger_ticks = 400;
+            hunger_ticks = 200;
             food_drop_ticks = 400;
             next_hunger_time = System.currentTimeMillis() + (hunger_ticks / 20) * 1000;
-            next_food_drop_time = System.currentTimeMillis() + (food_drop_ticks / 20) * 1000;
+            last_food_drop_time = 0;
 
             String twd_spawn = FlanPluginConfig.get().getString(config_prefix + "spawn");
             Triple<Integer, Integer, Integer> twd_spawn_point = StringParsing.getCoordsFromConfigLocation(twd_spawn);
@@ -242,10 +299,12 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             }
 
             String shop_loc = FlanPluginConfig.get().getString(config_prefix + "shoploc");
-            Triple<Integer, Integer, Integer> shop_loc_point = StringParsing.getCoordsFromConfigLocation(twd_spawn);
+            Triple<Integer, Integer, Integer> shop_loc_point = StringParsing.getCoordsFromConfigLocation(shop_loc);
             shop_location = new Location(world, shop_loc_point.first, shop_loc_point.second, shop_loc_point.third);
 
-            setupShop();
+            debugMessage("Creating teams");
+            createTeams();
+            debugMessage("done Creating teams");
 
             start_time = System.currentTimeMillis() / 1000;
             spawnZombie();
@@ -281,17 +340,14 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             public void run() {
                 if (Globals.Ongoing != Globals.Gamemode.TWD) return;
 
-                if(System.currentTimeMillis() >= next_food_drop_time) {
-                    int players_alive = getAlivePlayerCount();
-                    int num_food_drops = players_alive / 4 + 1;
-                    int num_food_locs_total = food_drop_locs.size();
-                    int food_drops_per_loc = num_food_drops / num_food_locs_total + 1;
-                    for (int i = 0; i < food_drop_locs.size(); i++) {
-                        Location l = food_drop_locs.get(i);
-                        world.dropItemNaturally(l, new ItemStack(Material.BREAD, food_drops_per_loc));
+                int players_alive = getAlivePlayerCount();
+                // (num_food_locations * hunger_time * hunger_per_food) / (players_alive * additional_food_rate)
+                long target_food_drop_time = (long)(((double)food_drop_locs.size() * hunger_ticks * 5) / ((double)players_alive * 1.25));
+                if(System.currentTimeMillis() >= last_food_drop_time + target_food_drop_time) {
+                    for (Location l : food_drop_locs) {
+                        world.dropItemNaturally(l, new ItemStack(Material.BREAD, 1));
                     }
-
-                    next_food_drop_time = System.currentTimeMillis() + (food_drop_ticks / 20) * 1000;
+                    last_food_drop_time = System.currentTimeMillis();
                 }
 
                 if(System.currentTimeMillis() >= next_hunger_time) {
@@ -310,8 +366,30 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                     }
                 }
 
+                // Check for win condition
+                List<Team> alive_teams = player_stats.stream().filter(p -> !p.is_zombie).map(p -> p.team).toList();
+                if (alive_teams.stream().allMatch(t -> t == alive_teams.get(0))) {
+                    win(alive_teams.get(0));
+                }
             }
         }.runTaskTimer(FlanPlugin.getInstance(), 1L, 1L);
+    }
+
+    public void win(Team t) {
+        Bukkit.broadcastMessage(t.color + String.format("Team %d is the last team standing; they have won!", t.number));
+        Bukkit.broadcastMessage(ChatColor.YELLOW + "These players will continue to the next round:");
+        ArrayList<String> new_alive_players = new ArrayList<>();
+        for (PlayerStatsTWD p : t.players) {
+            Bukkit.broadcastMessage(p.player.getName() + (p.is_zombie? " (revived)": ""));
+            new_alive_players.add(p.player.getName());
+        }
+
+        FlanPluginConfig.get().set(config_prefix + "alive_players", StringParsing.listToConfigString(new_alive_players));
+        FlanPluginConfig.get().options().copyDefaults(true);
+        FlanPluginConfig.save();
+
+        stopGame();
+        tick_task.cancel();
     }
 
     public int getAlivePlayerCount() {
@@ -384,6 +462,60 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         ItemStack diamond_sword = new ItemStack(Material.DIAMOND_SWORD);
 
         shop_chest.getInventory().setContents(menu_items);
+    }
+
+    public void createTeams() {
+        String alive_players_string = FlanPluginConfig.get().getString(config_prefix + "alive_players");
+        List<String> alive_player_names = StringParsing.configStringToList(alive_players_string);
+
+        ArrayList<PlayerStatsTWD> zombie_players = new ArrayList<>();
+        ArrayList<PlayerStatsTWD> alive_players = new ArrayList<>();
+        for (PlayerStatsTWD ps : player_stats) {
+            boolean added = false;
+            for (String zp_name : alive_player_names) {
+                if (ps.player.getName().equals(zp_name)) {
+                    alive_players.add(ps);
+                    added = true;
+                }
+            }
+            if (!added) {
+                zombie_players.add(ps);
+            }
+        }
+
+        Collections.shuffle(alive_players);
+
+        ScoreboardManager scman = Bukkit.getScoreboardManager();
+        Scoreboard team_sc = scman.getNewScoreboard();
+
+        List<ChatColor> colors = Arrays.stream(ChatColor.values()).skip(1).toList();
+
+        teams = new ArrayList<Team>();
+        int players_taken = 0;
+        for (int i = 0; i < num_teams; ++i) {
+            int players_per_team = (alive_players.size() - players_taken) / (num_teams - i);
+            Team new_team = new Team(alive_players.subList(players_taken, players_taken + players_per_team));
+            new_team.color = colors.get(i);
+            new_team.number = i;
+            teams.add(new_team);
+            org.bukkit.scoreboard.Team team = team_sc.registerNewTeam(String.format("team_%d", i));
+            Bukkit.broadcastMessage(new_team.color + String.format("The %d team is", i));
+            for (PlayerStatsTWD p : new_team.players) {
+                p.team = new_team;
+                p.player.setDisplayName(new_team.color + p.player.getName());
+                Bukkit.broadcastMessage(new_team.color + p.player.getName());
+                team.addEntry(p.player.getName());
+                team.setColor(new_team.color);
+            }
+            players_taken += players_per_team;
+        }
+
+        org.bukkit.scoreboard.Team zombie_team = team_sc.registerNewTeam("zombies");
+        zombie_team.setColor(ChatColor.GREEN);
+
+        for (PlayerStatsTWD ps : zombie_players) {
+            zombie_team.addEntry(ps.player.getName());
+        }
     }
 
     public void updateScoreboardWithPlayerStats(PlayerStatsTWD ps) {
@@ -603,14 +735,13 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     }
 }
 
-class PlayerStatsTWD{
-    public Player player;
-    public int deaths = 0;
-    public int mobs_killed = 0;
-    public int players_killed = 0;
-    public boolean is_zombie = false;
-    public int points = 0;
-    public int stregdollars = 0;
 
-    public PlayerStatsTWD(Player p) {player = p;}
+class Team {
+    List<PlayerStatsTWD> players;
+    ChatColor color;
+    int number;
+
+    Team(List<PlayerStatsTWD> players) {
+        this.players = players;
+    }
 }

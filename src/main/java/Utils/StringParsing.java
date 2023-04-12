@@ -13,7 +13,7 @@ public class StringParsing {
         return new ArrayList<>(Arrays.asList(fromConfig.split(",")));
     }
 
-    public static String listToConfigString(ArrayList<String> l){
+    public static String listToConfigString(List<String> l){
         if(l.size() == 0)
             return "";
         StringBuilder str = new StringBuilder("[");
