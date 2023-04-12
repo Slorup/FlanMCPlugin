@@ -54,8 +54,8 @@ enum TwdStage{
 //TODO: Block destruction over time        -
 //TODO: Player Block Destruction           - Done
 //TODO: Update Rules                       -
-//TODO: Winning condition                  -
-//TODO: Teams                              -
+//TODO: Winning condition                  - Done
+//TODO: Teams                              - Done
 //TODO: Set server difficulty permanently  - DONE
 
 public class TheWalkingDatalogCommandExecutor implements CommandExecutor, Listener {
