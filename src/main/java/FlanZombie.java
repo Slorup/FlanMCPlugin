@@ -21,6 +21,8 @@ import java.util.Map.Entry;
 
 import static java.util.Map.entry;
 
+
+
 public class FlanZombie {
     int base_dmg = 1;
     net.minecraft.world.entity.monster.Zombie nms_zombie;
@@ -28,15 +30,54 @@ public class FlanZombie {
     int tick = 0;
     int points_worth = 0;
 
-//    List<Material> breakable_blocks = new ArrayList<>(Arrays.asList(Material.BLACK_TERRACOTTA, Material.BROWN_TERRACOTTA));
+    boolean all_blocks_breakable = false;
+    List<Material> breakable_blocks = new ArrayList<>();
 
     Map<Material, Integer> block_to_base_hp = Map.ofEntries(
-            entry(Material.BLACK_TERRACOTTA, 5) //TODO: Insert more blocks here
+            entry(Material.SMOOTH_STONE, 5),
+            entry(Material.GLASS_PANE, 2),
+            entry(Material.WHITE_STAINED_GLASS_PANE, 2),
+            entry(Material.WHITE_STAINED_GLASS, 3),
+            entry(Material.GLASS, 3),
+            entry(Material.IRON_DOOR, 20),
+            entry(Material.OAK_DOOR, 7),
+            entry(Material.WARPED_DOOR, 7),
+            entry(Material.BLUE_TERRACOTTA, 3),
+            entry(Material.BRICKS, 6),
+            entry(Material.POLISHED_BASALT, 5),
+            entry(Material.YELLOW_TERRACOTTA, 3),
+            entry(Material.LIGHT_BLUE_TERRACOTTA, 3),
+            entry(Material.OAK_PLANKS, 4),
+            entry(Material.SMOOTH_QUARTZ, 5),
+            entry(Material.BLUE_CONCRETE, 3),
+            entry(Material.CYAN_CONCRETE, 3)
     );
 
     int dmg_multiplier = 1;
 
     Map<Location, Integer> block_location_to_remaining_hp = new HashMap<Location, Integer>();
+
+    public void setBreakableBlocks(TwdStage stage) {
+        switch (stage){
+            case NORMAL -> setBreakableBlocksNormal();
+            case MID -> setBreakableBlocksMid();
+            case LATE -> setBreakableBlocksLate();
+        }
+    }
+
+    void setBreakableBlocksNormal() {
+        all_blocks_breakable = false;
+        breakable_blocks = new ArrayList<>(Arrays.asList(Material.SMOOTH_STONE, Material.GLASS_PANE, Material.GLASS, Material.WHITE_STAINED_GLASS_PANE, Material.WHITE_STAINED_GLASS, Material.IRON_DOOR, Material.OAK_DOOR, Material.WARPED_DOOR));
+    }
+
+    void setBreakableBlocksMid() {
+        all_blocks_breakable = false;
+        breakable_blocks = new ArrayList<>(Arrays.asList(Material.SMOOTH_STONE, Material.GLASS_PANE, Material.GLASS, Material.WHITE_STAINED_GLASS_PANE, Material.WHITE_STAINED_GLASS, Material.IRON_DOOR, Material.OAK_DOOR, Material.WARPED_DOOR, Material.BRICKS, Material.BLUE_TERRACOTTA, Material.BLUE_CONCRETE, Material.CYAN_CONCRETE, Material.OAK_PLANKS, Material.SMOOTH_QUARTZ, Material.LIGHT_BLUE_TERRACOTTA, Material.YELLOW_TERRACOTTA, Material.POLISHED_BASALT));
+    }
+
+    void setBreakableBlocksLate() {
+        all_blocks_breakable = true;
+    }
 
     public FlanZombie(net.minecraft.world.entity.monster.Zombie nmsEntity, FlanEntityType type) {
         this.nms_zombie = nmsEntity;
@@ -89,11 +130,16 @@ public class FlanZombie {
     void attemptBreakBlock(Block block) {
         Material type = block.getType();
 
-        if (block_to_base_hp.containsKey(type)) {
+        if (all_blocks_breakable || breakable_blocks.contains(type)) {
             Location location = block.getLocation();
 
-            if (!block_location_to_remaining_hp.containsKey(location)) block_location_to_remaining_hp.put(location, block_to_base_hp.get(type));
-            int block_hp = block_location_to_remaining_hp.get(location);
+            int block_hp = 1;
+
+            if(!all_blocks_breakable) {
+                if (!block_location_to_remaining_hp.containsKey(location)) block_location_to_remaining_hp.put(location, block_to_base_hp.get(type));
+                block_hp = block_location_to_remaining_hp.get(location);
+            }
+
             org.bukkit.entity.Entity entity = nms_zombie.getBukkitEntity();
 
             int dmg = base_dmg * dmg_multiplier;

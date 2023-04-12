@@ -19,7 +19,9 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
@@ -36,10 +38,16 @@ import java.util.stream.Stream;
 
 import static java.util.Map.entry;
 
+enum TwdStage{
+    NORMAL,
+    MID,
+    LATE
+}
+
 //TODO: Make Zombies target without vision - Done
 //TODO: Die by hunger                      - Doneish (Make sure difficulty is set to hard)
 //TODO: Food drops                         - Done
-//TODO: Shop                               -
+//TODO: Shop                               - Done
 //TODO: Zombie mode after death            - Done
 //TODO: Points balancing                   -
 //TODO: Zombie equipment                   - Done
@@ -48,7 +56,7 @@ import static java.util.Map.entry;
 //TODO: Update Rules                       -
 //TODO: Winning condition                  -
 //TODO: Teams                              -
-//TODO: Set server difficulty permanently  -
+//TODO: Set server difficulty permanently  - DONE
 
 public class TheWalkingDatalogCommandExecutor implements CommandExecutor, Listener {
     private Map<String, SubCommand> cmds = new HashMap<>();
@@ -86,13 +94,12 @@ public class TheWalkingDatalogCommandExecutor implements CommandExecutor, Listen
 
 class TheWalkingDatalog extends SubCommand implements Listener {
     Material breakable_block = Material.SMOOTH_STONE;
-    int wave = 0;
-    int stage = 0;
     int mobs_on_map = 0;
     int max_mobs_start = 20;
     int max_mobs_increase_per_min = 1;
     int zombie_start_points = 1;
     double zombie_point_scale_per_min = 0.1;
+    TwdStage stage;
 
     Map<Material, Integer> shop_item_to_price = Map.ofEntries(
             entry(breakable_block, 1),
@@ -218,8 +225,6 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         }
 
         if (Objects.equals(args[0], "start")) {
-            wave = 0;
-            stage = 0;
             if (Globals.Ongoing != Globals.Gamemode.NONE) {
                 player.sendMessage(ChatColor.RED + "Another gamemode is already in progress!");
                 return;
@@ -247,7 +252,10 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             hunger_ticks = 200;
             food_drop_ticks = 400;
             next_hunger_time = System.currentTimeMillis() + (hunger_ticks / 20) * 1000;
+
             last_food_drop_time = 0;
+
+            stage = TwdStage.NORMAL;
 
             String twd_spawn = FlanPluginConfig.get().getString(config_prefix + "spawn");
             Triple<Integer, Integer, Integer> twd_spawn_point = StringParsing.getCoordsFromConfigLocation(twd_spawn);
@@ -409,8 +417,9 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             FlanEntityType type = FlanEntityType.ZOMBIE;
             net.minecraft.world.entity.LivingEntity e = type.spawnEntity(mobSpawnLoc);
 
-            if (e instanceof EntityZombie) {
-                ((EntityZombie) e).fzombie.nms_zombie.setHealth(1);
+            if (e instanceof EntityZombie z) {
+                z.fzombie.setBreakableBlocks(stage);
+                z.fzombie.nms_zombie.setHealth(1);
                 //TODO: Set scaling stats
             }
 
@@ -434,6 +443,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         obj.getScore(ChatColor.BLUE + "=-=Leaderboard=-=").setScore(9995);
 
         return board;
+
     }
 
     public void updateScoreboardForAllPlayers() {
@@ -446,21 +456,14 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
     public void setupShop() {
         world.getBlockAt(shop_location).setType(Material.CHEST);
-        Chest shop_chest = (Chest) world.getBlockAt(shop_location);
-        ItemStack[] menu_items = {};
+        Chest shop_chest = (Chest) world.getBlockAt(shop_location).getState();
 
-        ItemStack block = new ItemStack(breakable_block);
-        ItemMeta block_meta = block.getItemMeta();
-        block_meta.setDisplayName("Placeable block!");
-        ArrayList<String> block_lore = new ArrayList<>();
-        block_lore.add("Costs: " + shop_item_to_price.get(breakable_block));
-        block_meta.setLore(block_lore);
-        block.setItemMeta(block_meta);
+        ItemStack block = setBlockShopMeta(new ItemStack(breakable_block));
+        ItemStack wooden_sword = setBlockShopMeta(new ItemStack(Material.WOODEN_SWORD));
+        ItemStack iron_sword = setBlockShopMeta(new ItemStack(Material.IRON_SWORD));
+        ItemStack diamond_sword = setBlockShopMeta(new ItemStack(Material.DIAMOND_SWORD));
 
-        ItemStack wooden_sword = new ItemStack(Material.WOODEN_SWORD);
-        ItemStack iron_sword = new ItemStack(Material.IRON_SWORD);
-        ItemStack diamond_sword = new ItemStack(Material.DIAMOND_SWORD);
-
+        ItemStack[] menu_items = {block, wooden_sword, iron_sword, diamond_sword};
         shop_chest.getInventory().setContents(menu_items);
     }
 
@@ -518,6 +521,16 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         }
     }
 
+    public ItemStack setBlockShopMeta(ItemStack item) {
+        ItemMeta item_meta = item.getItemMeta();
+        ArrayList<String> block_lore = new ArrayList<>();
+        block_lore.add("Costs: " + shop_item_to_price.get(item.getType()) + " stregdollars!");
+        item_meta.setLore(block_lore);
+        item.setItemMeta(item_meta);
+
+        return item;
+    }
+
     public void updateScoreboardWithPlayerStats(PlayerStatsTWD ps) {
         //Create new scoreboard each time because of terrible MC scoreboard design (cannot overwrite order comparitor)
         Scoreboard sb = Bukkit.getScoreboardManager().getNewScoreboard();
@@ -536,12 +549,30 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     }
 
     @EventHandler
-    public void onInventoryOpenEvent(InventoryOpenEvent e) {
-        if(Globals.Ongoing != Globals.Gamemode.TWD) return;
+    public void onInventoryClick(InventoryClickEvent e) {
+        if(e.getClickedInventory().getType() == InventoryType.CHEST) {
+            Player player = (Player) e.getWhoClicked();
+            PlayerStatsTWD playerStats = getPlayerStatsFromPlayer(player);
+            if (playerStats == null) return;
 
-        if (e.getInventory().getHolder() instanceof Chest) {
-
+            switch (e.getCurrentItem().getType()) {
+                case SMOOTH_STONE -> tryBuy(playerStats, Material.SMOOTH_STONE);
+                case WOODEN_SWORD -> tryBuy(playerStats, Material.WOODEN_SWORD);
+                case IRON_SWORD -> tryBuy(playerStats, Material.IRON_SWORD);
+                case DIAMOND_SWORD -> tryBuy(playerStats, Material.DIAMOND_SWORD);
+            }
+            e.setCancelled(true);
         }
+    }
+
+    public void tryBuy(PlayerStatsTWD playerStats, Material item){
+        int price = shop_item_to_price.get(item);
+//        debugMessage("Trying to buy price " + price + ". Has " + playerStats.stregdollars + " stregdollars");
+        if(playerStats.stregdollars >= price){
+            playerStats.player.getInventory().addItem(new ItemStack(item));
+            playerStats.stregdollars -= price;
+        }
+        updateScoreboardWithPlayerStats(playerStats);
     }
 
     @EventHandler
