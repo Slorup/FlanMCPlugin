@@ -235,14 +235,15 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 return;
             }
 
-            String alive_players = FlanPluginConfig.get().getString(config_prefix + "alive_players");
-            if (Objects.equals(alive_players, "none")) {
+            String alive_players_str = FlanPluginConfig.get().getString(config_prefix + "alive_players");
+            if (Objects.equals(alive_players_str, "none")) {
                 player.sendMessage("No saved alive players, adding everyone");
                 List<String> s = Bukkit.getOnlinePlayers().stream().map(it -> it.getName()).toList();
                 FlanPluginConfig.get().set(config_prefix + "alive_players", StringParsing.listToConfigString(s));
                 FlanPluginConfig.get().options().copyDefaults(true);
                 FlanPluginConfig.save();
             }
+            ArrayList<String> alive_players = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "alive_players"));
 
             Globals.Ongoing = Globals.Gamemode.TWD;
             player_stats = new ArrayList<>();
@@ -270,7 +271,12 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             zombie_portal = new Location(world, twd_zombie_portal_point.first, twd_zombie_portal_point.second, twd_zombie_portal_point.third);
 
             for (Player p : Bukkit.getOnlinePlayers()) {
-                player_stats.add(new PlayerStatsTWD(p));
+                PlayerStatsTWD ps = new PlayerStatsTWD(p);
+                player_stats.add(ps);
+
+                if (!alive_players.contains(p.getName())) {
+                    ps.is_zombie = true;
+                }
 
                 p.getInventory().clear();
                 p.setHealth(20.0);
@@ -278,7 +284,11 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 p.setSaturation(0);
                 giveStartEquipmentPlayer(p);
 
-                p.teleport(player_spawn);
+                if (ps.is_zombie) {
+                    p.teleport(zombie_spawn);
+                } else {
+                    p.teleport(player_spawn);
+                }
 
                 p.sendMessage(ChatColor.YELLOW + "The Walking Datalog has begun!");
                 p.sendMessage(ChatColor.YELLOW + "Defend Cassiopeia against waves of mobs.");
