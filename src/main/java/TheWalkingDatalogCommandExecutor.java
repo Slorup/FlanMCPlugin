@@ -365,7 +365,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
                 int players_alive = getAlivePlayerCount();
                 // (num_food_locations * hunger_time * hunger_per_food) / (players_alive * additional_food_rate)
-                long target_food_drop_time = (long)(((double)food_drop_locs.size() * hunger_ticks * 5) / ((double)players_alive * 1.25));
+                long target_food_drop_time = (long)(((double)food_drop_locs.size() * (hunger_ticks / 20) * 5 * 1000) / ((double)players_alive * 1.25));
                 if(System.currentTimeMillis() >= last_food_drop_time + target_food_drop_time) {
                     for (Location l : food_drop_locs) {
                         if (Bukkit.getWorlds().get(0).getNearbyEntities(l, 1, 2, 1).stream().noneMatch(it -> it.getName().equals("Bread"))) {
