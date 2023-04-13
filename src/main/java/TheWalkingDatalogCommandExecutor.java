@@ -49,6 +49,8 @@ enum TwdStage{
 //TODO: Block destruction over time (mobs)    -
 //TODO: Fix food problem? (ticktask problem?) -
 //TODO: Zombie vs playerzombie interaction    -
+//TODO: Auto-respawn                          -
+//TODO: Border around cass                    -
 
 public class TheWalkingDatalogCommandExecutor implements CommandExecutor, Listener {
     private Map<String, SubCommand> cmds = new HashMap<>();
@@ -81,16 +83,31 @@ public class TheWalkingDatalogCommandExecutor implements CommandExecutor, Listen
 
         return true;
     }
-
 }
 
 class TheWalkingDatalog extends SubCommand implements Listener {
-    Material breakable_block = Material.SMOOTH_STONE;
-    int mobs_on_map = 0;
-    int max_mobs_start = 20;
-    int max_mobs_increase_per_min = 1;
-    int zombie_start_points = 1;
-    double zombie_point_scale_per_min = 0.1;
+    Material breakable_block = Material.OAK_PLANKS;
+    int zombies_on_map = 0;
+    int skeletons_on_map = 0;
+    int blazes_on_map = 0;
+    int withers_on_map = 0;
+
+    int max_zombies_start = 50;
+    int max_skeletons_start = 10;
+    int max_blazes_start = 0;
+    int max_withers_start = 0;
+
+    int zombie_increase_per_min = 10;
+    int skeleton_increase_per_min = 5;
+    int blaze_increase_per_min = 5;
+    int wither_increase_per_min = 1;
+
+    int zombie_base_points = 1;
+    int skeleton_base_points = 1;
+    int blaze_base_points = 5;
+    int wither_base_points = 50;
+
+    long seconds_since_start = 0L;
     TwdStage stage;
 
     Map<Material, Integer> shop_item_to_price = Map.ofEntries(
@@ -245,6 +262,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             hunger_ticks = 200;
             food_drop_ticks = 400;
             next_hunger_time = System.currentTimeMillis() + (hunger_ticks / 20) * 1000;
+            seconds_since_start = 0;
 
             last_food_drop_time = 0;
 
@@ -311,7 +329,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             updateScoreboardAll();
 
             start_time = System.currentTimeMillis() / 1000;
-            spawnZombie();
+            trySpawnMobs();
 
             setupTickTimer();
 
@@ -343,6 +361,15 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             @Override
             public void run() {
                 if (Globals.Ongoing != Globals.Gamemode.TWD) return;
+                seconds_since_start = secondsSinceStart();
+
+                if(seconds_since_start > 600){
+                    stage = TwdStage.LATE;
+                }else if (seconds_since_start > 300) {
+                    stage = TwdStage.MID;
+                }else{
+                    stage = TwdStage.NORMAL;
+                }
 
                 int players_alive = getAlivePlayerCount();
                 // (num_food_locations * hunger_time * hunger_per_food) / (players_alive * additional_food_rate)
@@ -375,6 +402,8 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 if (alive_teams.stream().allMatch(t -> t == alive_teams.get(0))) {
                     win(alive_teams.get(0));
                 }
+
+                trySpawnMobs();
             }
         }.runTaskTimer(FlanPlugin.getInstance(), 1L, 1L);
     }
@@ -404,23 +433,53 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         return i;
     }
 
-    public void spawnZombie() {
-        long seconds_since_start = secondsSinceStart();
-        long current_mob_cap = max_mobs_start + (max_mobs_increase_per_min * (seconds_since_start / 60));
-//        debugMessage("trying to spawn " + (current_mob_cap - mobs_on_map) + " zombies");
-        while (mobs_on_map < current_mob_cap) {
-            Location mobSpawnLoc = getRandomMobSpawnLoc();
+    public void trySpawnMobs() {
+        long current_zombie_cap = max_zombies_start + (zombie_increase_per_min * (seconds_since_start / 60));
+        while (zombies_on_map < current_zombie_cap) {
+            Location spawnLoc = getRandomMobSpawnLoc();
             FlanEntityType type = FlanEntityType.ZOMBIE;
-            net.minecraft.world.entity.LivingEntity e = type.spawnEntity(mobSpawnLoc);
+            EntityZombie e = (EntityZombie)type.spawnEntity(spawnLoc);
 
-            if (e instanceof EntityZombie z) {
-                z.fzombie.setBreakableBlocks(stage);
-                z.fzombie.nms_zombie.setHealth(10);
-                //TODO: Set scaling stats
-            }
-
-            mobs_on_map++;
+            e.flan_entity.setBreakableBlocks(stage);
+            e.flan_entity.points_worth = zombie_base_points;
         }
+        zombies_on_map = (int)current_zombie_cap;
+
+        long current_skeleton_cap = max_skeletons_start + (skeleton_increase_per_min * (seconds_since_start / 60));
+        while (skeletons_on_map < current_skeleton_cap) {
+            Location spawnLoc = getRandomMobSpawnLoc();
+            FlanEntityType type = FlanEntityType.SKELETON;
+            EntitySkeleton e = (EntitySkeleton) type.spawnEntity(spawnLoc);
+
+            e.flan_entity.points_worth = skeleton_base_points;
+        }
+        skeletons_on_map = (int)current_skeleton_cap;
+
+
+        if (stage == TwdStage.MID || stage == TwdStage.LATE){
+            long current_blaze_cap = max_blazes_start + (blaze_increase_per_min * (seconds_since_start / 60));
+            while (blazes_on_map < current_blaze_cap) {
+                Location spawnLoc = getRandomMobSpawnLoc();
+                FlanEntityType type = FlanEntityType.BLAZE;
+                EntityBlaze e = (EntityBlaze) type.spawnEntity(spawnLoc);
+
+                e.flan_entity.points_worth = blaze_base_points;
+            }
+            blazes_on_map = (int)current_blaze_cap;
+        }
+
+        if (stage == TwdStage.LATE){
+            long current_wither_cap = max_withers_start + (wither_increase_per_min * (seconds_since_start / 60));
+            while (withers_on_map < current_wither_cap) {
+                Location spawnLoc = getRandomMobSpawnLoc();
+                FlanEntityType type = FlanEntityType.WITHER;
+                EntityWither e = (EntityWither) type.spawnEntity(spawnLoc);
+
+                e.flan_entity.points_worth = wither_base_points;
+            }
+            withers_on_map = (int)current_wither_cap;
+        }
+        //        debugMessage("trying to spawn " + (current_mob_cap - mobs_on_map) + " zombies");
     }
 
     public long secondsSinceStart() {
@@ -504,6 +563,16 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         return item;
     }
 
+    public ItemStack setBlockLore(ItemStack item, String lore) {
+        ItemMeta item_meta = item.getItemMeta();
+        ArrayList<String> block_lore = new ArrayList<>();
+        block_lore.add(lore);
+        item_meta.setLore(block_lore);
+        item.setItemMeta(item_meta);
+
+        return item;
+    }
+
     public void updateScoreboardAll() {
         for (PlayerStatsTWD ps : player_stats) {
             updateScoreboard(ps);
@@ -529,6 +598,8 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent e) {
+        if(e.getClickedInventory() == null) return;
+
         if(e.getClickedInventory().getType() == InventoryType.CHEST) {
             Player player = (Player) e.getWhoClicked();
             PlayerStatsTWD playerStats = getPlayerStatsFromPlayer(player);
@@ -574,8 +645,10 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     }
 
     public void giveStartEquipmentPlayer(Player p) {
-        ItemStack weapon = new ItemStack(Material.DIAMOND_PICKAXE);
+        ItemStack weapon = new ItemStack(Material.IRON_AXE);
+        weapon = setBlockLore(weapon, "This tool is dull - Low damage!");
         weapon.addEnchantment(Enchantment.DURABILITY, 3);
+
         p.getInventory().addItem(weapon);
     }
 
@@ -604,7 +677,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             Player target = (Player)e.getEntity();
             Player source = (Player)e.getDamager();
 
-            if(source.getInventory().getItemInMainHand().getType() == Material.DIAMOND_PICKAXE) {
+            if(source.getInventory().getItemInMainHand().getType() == Material.IRON_AXE) {
                 e.setDamage(0.5);
             }
 
@@ -667,20 +740,32 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         e.setDroppedExp(0);
         e.getDrops().clear();
 
-        if (!(e.getEntity() instanceof Monster)) return;
+        if (!(e.getEntity() instanceof Monster || e.getEntity() instanceof Boss)) return;
+
+        int points = 0;
+        if (e.getEntity() instanceof Zombie) {
+            points += zombie_base_points;
+        }
+        if (e.getEntity() instanceof Skeleton) {
+            points += skeleton_base_points;
+        }
+        if (e.getEntity() instanceof Blaze) {
+            points += blaze_base_points;
+        }
+        if (e.getEntity() instanceof Wither) {
+            points += wither_base_points;
+        }
 
         if(e.getEntity().getKiller() != null) {
             PlayerStatsTWD killerStats = getPlayerStatsFromPlayer(e.getEntity().getKiller());
             if (killerStats != null) {
                 killerStats.mobs_killed++;
-                //TODO: Scaling points for harder mobs
-                killerStats.stregdollars += zombie_start_points;
+                killerStats.stregdollars += points;
                 updateScoreboard(killerStats);
             }
         }
 
-        mobs_on_map--;
-        spawnZombie();
+        trySpawnMobs();
     }
 
     public Location getRandomMobSpawnLoc() {
@@ -698,7 +783,11 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 e.remove();
             }
         }
-        mobs_on_map = 0;
+        seconds_since_start = 0L;
+        zombies_on_map = 0;
+        skeletons_on_map = 0;
+        blazes_on_map = 0;
+        withers_on_map = 0;
 
         sortPlayerStatsByPoints();
 

@@ -5,7 +5,11 @@ import org.bukkit.craftbukkit.v1_18_R1.CraftWorld;
 import org.bukkit.entity.EntityType;
 
 public enum FlanEntityType {
-    ZOMBIE("Zombie", 54, EntityType.ZOMBIE, net.minecraft.world.entity.monster.Zombie.class, EntityZombie.class);
+    ZOMBIE("Zombie", 54, EntityType.ZOMBIE, net.minecraft.world.entity.monster.Zombie.class, EntityZombie.class),
+    SKELETON("Skeleton", 51, EntityType.SKELETON, net.minecraft.world.entity.monster.Skeleton.class, EntitySkeleton.class),
+    BLAZE("Blaze", 61, EntityType.BLAZE, net.minecraft.world.entity.monster.Blaze.class, EntityBlaze.class),
+    WITHER("Wither", 64, EntityType.WITHER, net.minecraft.world.entity.boss.wither.WitherBoss.class, EntityWither.class);
+
 
     private final String name;
     private final int id;
