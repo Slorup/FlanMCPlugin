@@ -29,9 +29,6 @@ import static java.util.Map.entry;
 public class FlanBlaze {
     net.minecraft.world.entity.monster.Blaze nms_entity;
     FlanEntityType type;
-    int points_worth = 0;
-
-    Map<Location, Integer> block_location_to_remaining_hp = new HashMap<Location, Integer>();
 
     public FlanBlaze(net.minecraft.world.entity.monster.Blaze nmsEntity, FlanEntityType type) {
         this.nms_entity = nmsEntity;
@@ -45,19 +42,11 @@ public class FlanBlaze {
         this.nms_entity.getAttribute(Attributes.FOLLOW_RANGE).setBaseValue(100.0D);
 
         this.nms_entity.goalSelector.addGoal(4, new BlazeAttackGoal(this.nms_entity));
-        this.nms_entity.goalSelector.addGoal(5, new MoveTowardsRestrictionGoal(this.nms_entity, 1.0D));
         this.nms_entity.goalSelector.addGoal(7, new WaterAvoidingRandomStrollGoal(this.nms_entity, 1.0D, 0.0F));
         this.nms_entity.goalSelector.addGoal(8, new LookAtPlayerGoal(this.nms_entity, Player.class, 8.0F));
         this.nms_entity.goalSelector.addGoal(8, new RandomLookAroundGoal(this.nms_entity));
         this.nms_entity.targetSelector.addGoal(1, (new HurtByTargetGoal(this.nms_entity, new Class[0])).setAlertOthers(new Class[0]));
         this.nms_entity.targetSelector.addGoal(2, new NearestAttackableTargetLongGoal(this.nms_entity, Player.class, false));
-
-//        this.nms_skeleton.goalSelector.addGoal(3, new AvoidEntityGoal(this.nms_skeleton, Wolf.class, 6.0F, 1.0D, 1.2D));
-//        this.nms_skeleton.goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this.nms_skeleton, 1.0D));
-//        this.nms_skeleton.goalSelector.addGoal(6, new LookAtPlayerGoal(this.nms_skeleton, Player.class, 8.0F));
-//        this.nms_skeleton.goalSelector.addGoal(6, new RandomLookAroundGoal(this.nms_skeleton));
-//        this.nms_skeleton.targetSelector.addGoal(1, new HurtByTargetGoal(this.nms_skeleton, new Class[0]));
-//        this.nms_skeleton.targetSelector.addGoal(2, new NearestAttackableTargetGoal(this.nms_skeleton, Player.class, true));
     }
 
     public void onTick() {}

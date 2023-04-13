@@ -28,7 +28,6 @@ public class FlanZombie {
     net.minecraft.world.entity.monster.Zombie nms_entity;
     FlanEntityType type;
     int tick = 0;
-    int points_worth = 0;
 
     boolean all_blocks_breakable = false;
     List<Material> breakable_blocks = new ArrayList<>();

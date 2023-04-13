@@ -17,7 +17,6 @@ import java.util.Map;
 public class FlanWither {
     net.minecraft.world.entity.boss.wither.WitherBoss nms_entity;
     FlanEntityType type;
-    int points_worth = 0;
 
     public FlanWither(net.minecraft.world.entity.boss.wither.WitherBoss nmsEntity, FlanEntityType type) {
         this.nms_entity = nmsEntity;
