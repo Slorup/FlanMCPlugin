@@ -1,6 +1,9 @@
 package Utils;
 
 
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -29,5 +32,12 @@ public class StringParsing {
         String[] parts = loc.split(";");
         if(parts.length < 3) return null;
         return new Triple<Integer, Integer, Integer>(Integer.parseInt(parts[0]),Integer.parseInt(parts[1]),Integer.parseInt(parts[2]));
+    }
+
+    public static Location getLocFromConfigLocation(String loc){
+        loc = loc.replace("(","").replace(")","");
+        String[] parts = loc.split(";");
+        if(parts.length < 3) return null;
+        return new Location(Bukkit.getWorlds().get(0), Integer.parseInt(parts[0]), Integer.parseInt(parts[1]),Integer.parseInt(parts[2]));
     }
 }

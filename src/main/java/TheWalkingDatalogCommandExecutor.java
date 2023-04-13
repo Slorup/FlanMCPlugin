@@ -26,6 +26,8 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.scoreboard.DisplaySlot;
@@ -34,6 +36,7 @@ import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.ScoreboardManager;
 
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.util.Map.entry;
@@ -134,7 +137,10 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     long food_drop_ticks;
     long last_food_drop_time;
 
-    int num_teams = -1;
+    List<Location> no_dark_locs;
+    double no_dark_distance = 25.0;
+
+    int num_teams = 2;//-1;
     List<Team> teams;
 
     void onCommand(Player player, Command cmd, String[] args) {
@@ -191,6 +197,16 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             ArrayList<String> spawns = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "foodlocs"));
             player.sendMessage(spawns.toString());
             return;
+        }
+
+        if (Objects.equals(args[0], "add_no_dark")) {
+            ArrayList<String> no_dark_areas = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "no_dark"));
+            String str = String.format("(%d;0;%d)", player.getLocation().getBlockX(), player.getLocation().getBlockZ());
+            player.sendMessage("Added " + str + " to no_darks");
+            no_dark_areas.add(str);
+            FlanPluginConfig.get().set(config_prefix + "no_dark", StringParsing.listToConfigString(no_dark_areas));
+            FlanPluginConfig.get().options().copyDefaults(true);
+            FlanPluginConfig.save();
         }
 
         if (Objects.equals(args[0], "set_num_teams")) {
@@ -325,6 +341,9 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             shop_location = new Location(world, shop_loc_point.first, shop_loc_point.second, shop_loc_point.third);
             setupShop();
 
+            no_dark_locs = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "no_dark"))
+                    .stream().map(it -> StringParsing.getLocFromConfigLocation(it)).toList();
+
             createTeams();
             updateScoreboardAll();
 
@@ -373,10 +392,12 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
                 int players_alive = getAlivePlayerCount();
                 // (num_food_locations * hunger_time * hunger_per_food) / (players_alive * additional_food_rate)
-                long target_food_drop_time = (long)(((double)food_drop_locs.size() * hunger_ticks * 5) / ((double)players_alive * 1.25));
+                long target_food_drop_time = (long)(((double)food_drop_locs.size() * (hunger_ticks / 20) * 5 * 1000) / ((double)players_alive * 1.25));
                 if(System.currentTimeMillis() >= last_food_drop_time + target_food_drop_time) {
                     for (Location l : food_drop_locs) {
-                        world.dropItemNaturally(l, new ItemStack(Material.BREAD, 1));
+                        if (Bukkit.getWorlds().get(0).getNearbyEntities(l, 1, 2, 1).stream().noneMatch(it -> it.getName().equals("Bread"))) {
+                            world.dropItemNaturally((new Location(Bukkit.getWorlds().get(0), 0.5, 0.5, 0.5)).add(l), new ItemStack(Material.BREAD, 1));
+                        }
                     }
                     last_food_drop_time = System.currentTimeMillis();
                 }
@@ -404,6 +425,27 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 }
 
                 trySpawnMobs();
+
+                // Debuff everyone who is not inside no_dark locations
+                for (PlayerStatsTWD ps : player_stats) {
+                    if (!ps.is_zombie) {
+                        Location proj_player_loc = new Location(ps.player.getWorld(), ps.player.getLocation().getBlockX(), 0.0, ps.player.getLocation().getBlockZ());
+                        boolean is_within = false;
+                        for (Location no_dark_loc : no_dark_locs) {
+//                            debugMessage(String.format("distance: %f", ps.player.getLocation().distance(no_dark_loc)));
+                            if (proj_player_loc.distance(no_dark_loc) <= no_dark_distance) {
+                                is_within = true;
+                                break;
+                            }
+                        }
+//                        debugMessage(String.format("Player %s is %b within", ps.player.getName(), is_within));
+                        if (!is_within) {
+                            ps.player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, 40, 1));
+                            ps.player.addPotionEffect(new PotionEffect(PotionEffectType.WEAKNESS, 40, 1));
+                            ps.player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 40, 1));
+                        }
+                    }
+                }
             }
         }.runTaskTimer(FlanPlugin.getInstance(), 1L, 1L);
     }
