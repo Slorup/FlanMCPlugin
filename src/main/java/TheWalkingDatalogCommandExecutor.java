@@ -47,19 +47,11 @@ enum TwdStage{
     LATE
 }
 
-//TODO: Make Zombies target without vision - Done
-//TODO: Die by hunger                      - Doneish (Make sure difficulty is set to hard)
-//TODO: Food drops                         - Done
-//TODO: Shop                               - Done
-//TODO: Zombie mode after death            - Done
-//TODO: Points balancing                   -
-//TODO: Zombie equipment                   - Done
-//TODO: Block destruction over time        -
-//TODO: Player Block Destruction           - Done
-//TODO: Update Rules                       -
-//TODO: Winning condition                  - Done
-//TODO: Teams                              - Done
-//TODO: Set server difficulty permanently  - DONE
+//TODO: More types of mobs                    -
+//TODO: Mob Scaling + points for killing      -
+//TODO: Block destruction over time (mobs)    -
+//TODO: Fix food problem? (ticktask problem?) -
+//TODO: Zombie vs playerzombie interaction    -
 
 public class TheWalkingDatalogCommandExecutor implements CommandExecutor, Listener {
     private Map<String, SubCommand> cmds = new HashMap<>();
@@ -308,16 +300,10 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
                 p.sendMessage(ChatColor.YELLOW + "The Walking Datalog has begun!");
                 p.sendMessage(ChatColor.YELLOW + "Defend Cassiopeia against waves of mobs.");
-                p.sendMessage(ChatColor.YELLOW + "Kill mobs to obtain scorepoints and stregdollars.");
-                p.sendMessage(ChatColor.YELLOW + "Stregdollars can be exchanged for equipment and daily products like Sport-Cola in Strandvejen.");
-                p.sendMessage(ChatColor.YELLOW + "You have 3 lives! If the mobs manage to get their hands on Datalogijuice, the game will end.");
-                p.sendMessage(ChatColor.YELLOW + "Player ranking is determined from the scorepoints.");
-
-                Scoreboard sb = createPointsScoreboard();
-                for (Player p2 : Bukkit.getOnlinePlayers()) {
-                    sb.getObjective("points").getScore(p2.getDisplayName()).setScore(0);
-                }
-                p.setScoreboard(sb);
+                p.sendMessage(ChatColor.YELLOW + "Kill mobs to obtain stregdollars and buy items in Strandvejen.");
+                p.sendMessage(ChatColor.YELLOW + "Food will be dropped around the map.");
+                p.sendMessage(ChatColor.YELLOW + "If you die, you will become a zombie and can kill the other players.");
+                p.sendMessage(ChatColor.YELLOW + "ALL players from the last team standing will advance to the next round!");
             }
 
             ArrayList<String> mob_spawns = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "mobspawns"));
@@ -335,11 +321,13 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             String shop_loc = FlanPluginConfig.get().getString(config_prefix + "shoploc");
             Triple<Integer, Integer, Integer> shop_loc_point = StringParsing.getCoordsFromConfigLocation(shop_loc);
             shop_location = new Location(world, shop_loc_point.first, shop_loc_point.second, shop_loc_point.third);
+            setupShop();
 
             no_dark_locs = StringParsing.configStringToList(FlanPluginConfig.get().getString(config_prefix + "no_dark"))
                     .stream().map(it -> StringParsing.getLocFromConfigLocation(it)).toList();
 
             createTeams();
+            updateScoreboardAll();
 
             start_time = System.currentTimeMillis() / 1000;
             spawnZombie();
@@ -470,7 +458,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
             if (e instanceof EntityZombie z) {
                 z.fzombie.setBreakableBlocks(stage);
-                z.fzombie.nms_zombie.setHealth(1);
+                z.fzombie.nms_zombie.setHealth(10);
                 //TODO: Set scaling stats
             }
 
@@ -480,29 +468,6 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
     public long secondsSinceStart() {
         return (System.currentTimeMillis() / 1000) - start_time;
-    }
-
-    public Scoreboard createPointsScoreboard() {
-        Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
-
-        Objective obj = board.registerNewObjective("points", "dummy", ChatColor.RED + "Player Info");
-        obj.setDisplaySlot(DisplaySlot.SIDEBAR);
-        obj.getScore(ChatColor.GREEN + "Mobs killed: 0").setScore(9999);
-        obj.getScore(ChatColor.GREEN + "Stregdollars: 0").setScore(9998);
-        obj.getScore(ChatColor.GREEN + "Deaths: 0").setScore(9997);
-        obj.getScore(" ").setScore(9996);
-        obj.getScore(ChatColor.BLUE + "=-=Leaderboard=-=").setScore(9995);
-
-        return board;
-
-    }
-
-    public void updateScoreboardForAllPlayers() {
-        if (player_stats.size() == 0) return;
-
-        for (PlayerStatsTWD ps : player_stats) {
-            updateScoreboardWithPlayerStats(ps);
-        }
     }
 
     public void setupShop() {
@@ -582,19 +547,25 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         return item;
     }
 
-    public void updateScoreboardWithPlayerStats(PlayerStatsTWD ps) {
+    public void updateScoreboardAll() {
+        for (PlayerStatsTWD ps : player_stats) {
+            updateScoreboard(ps);
+        }
+    }
+
+    public void updateScoreboard(PlayerStatsTWD ps) {
         //Create new scoreboard each time because of terrible MC scoreboard design (cannot overwrite order comparitor)
         Scoreboard sb = Bukkit.getScoreboardManager().getNewScoreboard();
         Objective obj = sb.registerNewObjective("points", "dummy", ChatColor.RED + "Player Info");
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
         obj.getScore(ChatColor.GREEN + "Mobs killed: " + ps.mobs_killed).setScore(9999);
         obj.getScore(ChatColor.GREEN + "Stregdollars: " + ps.stregdollars).setScore(9998);
-        obj.getScore(ChatColor.GREEN + "Deaths: " + ps.deaths).setScore(9997);
         obj.getScore(" ").setScore(9996);
-        obj.getScore(ChatColor.BLUE + "=-=Leaderboard=-=").setScore(9995);
+        obj.getScore(ChatColor.BLUE + "=-=Players Alive=-=").setScore(9995);
 
-        for (Player p2 : Bukkit.getOnlinePlayers()) {
-            sb.getObjective("points").getScore(p2.getDisplayName()).setScore(ps.points);
+        for (Team t : teams) {
+            int alive_count = (int)t.players.stream().filter(p -> !p.is_zombie).count();
+            obj.getScore(t.color + "Team " + t.number + ": ").setScore(alive_count);
         }
         ps.player.setScoreboard(sb);
     }
@@ -605,6 +576,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             Player player = (Player) e.getWhoClicked();
             PlayerStatsTWD playerStats = getPlayerStatsFromPlayer(player);
             if (playerStats == null) return;
+            if (playerStats.is_zombie) e.setCancelled(true);
 
             switch (e.getCurrentItem().getType()) {
                 case SMOOTH_STONE -> tryBuy(playerStats, Material.SMOOTH_STONE);
@@ -618,12 +590,13 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 
     public void tryBuy(PlayerStatsTWD playerStats, Material item){
         int price = shop_item_to_price.get(item);
-//        debugMessage("Trying to buy price " + price + ". Has " + playerStats.stregdollars + " stregdollars");
+
         if(playerStats.stregdollars >= price){
             playerStats.player.getInventory().addItem(new ItemStack(item));
             playerStats.stregdollars -= price;
         }
-        updateScoreboardWithPlayerStats(playerStats);
+
+        updateScoreboard(playerStats);
     }
 
     @EventHandler
@@ -674,6 +647,10 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             Player target = (Player)e.getEntity();
             Player source = (Player)e.getDamager();
 
+            if(source.getInventory().getItemInMainHand().getType() == Material.DIAMOND_PICKAXE) {
+                e.setDamage(0.5);
+            }
+
             PlayerStatsTWD targetStats = getPlayerStatsFromPlayer(target);
             PlayerStatsTWD sourceStats = getPlayerStatsFromPlayer(source);
 
@@ -715,18 +692,15 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         if (playerStats != null) {
             playerStats.is_zombie = true;
             playerStats.deaths++;
-            updateScoreboardWithPlayerStats(playerStats);
         }
 
         if(e.getEntity().getKiller() != null) {
             PlayerStatsTWD killerStats = getPlayerStatsFromPlayer(e.getEntity().getKiller());
             if (killerStats != null) {
                 killerStats.players_killed++;
-                updateScoreboardWithPlayerStats(killerStats);
             }
         }
-
-        //TODO: Check if game is over
+        updateScoreboardAll();
     }
 
     @EventHandler
@@ -742,10 +716,9 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             PlayerStatsTWD killerStats = getPlayerStatsFromPlayer(e.getEntity().getKiller());
             if (killerStats != null) {
                 killerStats.mobs_killed++;
-                killerStats.points += zombie_start_points;
-                killerStats.stregdollars += zombie_start_points;
                 //TODO: Scaling points for harder mobs
-                updateScoreboardWithPlayerStats(killerStats);
+                killerStats.stregdollars += zombie_start_points;
+                updateScoreboard(killerStats);
             }
         }
 
@@ -775,18 +748,18 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         ArrayList<String> messagesToShow = new ArrayList<>();
         messagesToShow.add(ChatColor.YELLOW + "The Walking Datalog is now over!");
 
-        if (player_stats.size() >= 1) {
-            PlayerStatsTWD p = player_stats.get(0);
-            messagesToShow.add(ChatColor.YELLOW + String.format("1st place (%d points): %s ", p.points, p.player.getDisplayName()));
-        }
-        if (player_stats.size() >= 2) {
-            PlayerStatsTWD p = player_stats.get(1);
-            messagesToShow.add(ChatColor.YELLOW + String.format("2nd place (%d points): %s ", p.points, p.player.getDisplayName()));
-        }
-        if (player_stats.size() >= 3) {
-            PlayerStatsTWD p = player_stats.get(2);
-            messagesToShow.add(ChatColor.YELLOW + String.format("3rd place (%d points): %s ", p.points, p.player.getDisplayName()));
-        }
+//        if (player_stats.size() >= 1) {
+//            PlayerStatsTWD p = player_stats.get(0);
+//            messagesToShow.add(ChatColor.YELLOW + String.format("1st place (%d points): %s ", p.points, p.player.getDisplayName()));
+//        }
+//        if (player_stats.size() >= 2) {
+//            PlayerStatsTWD p = player_stats.get(1);
+//            messagesToShow.add(ChatColor.YELLOW + String.format("2nd place (%d points): %s ", p.points, p.player.getDisplayName()));
+//        }
+//        if (player_stats.size() >= 3) {
+//            PlayerStatsTWD p = player_stats.get(2);
+//            messagesToShow.add(ChatColor.YELLOW + String.format("3rd place (%d points): %s ", p.points, p.player.getDisplayName()));
+//        }
 
         for (PlayerStatsTWD ps : player_stats) {
             for (String message : messagesToShow)
