@@ -6,6 +6,7 @@ import Utils.Triple;
 //import net.minecraft.world.entity.monster.EntityMonster;
 //import net.minecraft.world.entity.monster.EntityZombie;
 //import net.minecraft.world.entity.player.EntityHuman;
+import net.minecraft.world.InteractionHand;
 import org.bukkit.*;
 import org.bukkit.block.Chest;
 import org.bukkit.command.Command;
@@ -16,16 +17,15 @@ import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.entity.EntityDeathEvent;
-import org.bukkit.event.entity.ExplosionPrimeEvent;
-import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.entity.*;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.MainHand;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -41,6 +41,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.util.Map.entry;
+import static net.minecraft.world.item.Items.BOW;
 
 enum TwdStage{
     NORMAL,
@@ -48,12 +49,22 @@ enum TwdStage{
     LATE
 }
 
-//TODO: More types of mobs                    -
-//TODO: Mob Scaling + points for killing      -
-//TODO: Block destruction over time (mobs)    -
-//TODO: Fix food problem? (ticktask problem?) -
-//TODO: Zombie vs playerzombie interaction    -
+//49,-42,32
+
+//TODO: Block destruction over time (mobs)    - Done?
+//TODO: Fix targeting                         - Doneish
 //TODO: Auto-respawn                          -
+//TODO: Show teammates somewhere              -
+//TODO: Delay before mob spawn at start       -
+
+//TODO: Balance all constants:
+//  MobSpawnCounts
+//  Stregdollars per mob
+//  Shop
+//  Food
+//  MobHP (default atm)
+//  Mob effects (none atm)
+//
 
 public class TheWalkingDatalogCommandExecutor implements CommandExecutor, Listener {
     private Map<String, SubCommand> cmds = new HashMap<>();
@@ -95,15 +106,15 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     int blazes_on_map = 0;
     int withers_on_map = 0;
 
-    int max_zombies_start = 50;
-    int max_skeletons_start = 10;
-    int max_blazes_start = 5;
+    int max_zombies_start = 30;
+    int max_skeletons_start = 8;
+    int max_blazes_start = 0;
     int max_withers_start = 0;
 
     int zombie_increase_per_min = 10;
     int skeleton_increase_per_min = 5;
-    int blaze_increase_per_min = 5;
-    double wither_increase_per_min = 0.2;
+    int blaze_increase_per_min = 3;
+    double wither_increase_per_min = 0.0;
 
     int zombie_base_points = 1;
     int skeleton_base_points = 1;
@@ -308,11 +319,12 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 p.setHealth(20.0);
                 p.setFoodLevel(20);
                 p.setSaturation(0);
-                giveStartEquipmentPlayer(p);
 
                 if (ps.is_zombie) {
+                    giveStartEquipmentZombiePlayer(p);
                     p.teleport(zombie_spawn);
                 } else {
+                    giveStartEquipmentPlayer(p);
                     p.teleport(player_spawn);
                 }
 
@@ -423,7 +435,6 @@ class TheWalkingDatalog extends SubCommand implements Listener {
 //                    win(alive_teams.get(0));
 //                }
 
-
                 // Debuff everyone who is not inside no_dark locations
                 for (PlayerStatsTWD ps : player_stats) {
                     if (!ps.is_zombie) {
@@ -497,11 +508,11 @@ class TheWalkingDatalog extends SubCommand implements Listener {
             FlanEntityType type = FlanEntityType.SKELETON;
             EntitySkeleton e = (EntitySkeleton) type.spawnEntity(spawnLoc);
 
-
+            e.setItemInHand(InteractionHand.MAIN_HAND, new net.minecraft.world.item.ItemStack(BOW));
             skeletons_on_map++;
         }
 
-//        if (stage == TwdStage.MID || stage == TwdStage.LATE){
+        if (stage == TwdStage.MID || stage == TwdStage.LATE){
             long current_blaze_cap = max_blazes_start + (blaze_increase_per_min * (seconds_since_start / 60));
             if (current_blaze_cap != blazes_on_map)
                 debugMessage("spawning " + (current_blaze_cap - blazes_on_map) + " blazes");
@@ -510,11 +521,10 @@ class TheWalkingDatalog extends SubCommand implements Listener {
                 Location spawnLoc = getRandomMobSpawnLoc();
                 FlanEntityType type = FlanEntityType.BLAZE;
                 EntityBlaze e = (EntityBlaze) type.spawnEntity(spawnLoc);
-
                 blazes_on_map++;
             }
             blazes_on_map = (int)current_blaze_cap;
-//        }
+        }
 
         if (stage == TwdStage.LATE){
             long current_wither_cap = max_withers_start + (int)Math.ceil(wither_increase_per_min * (seconds_since_start / 60));
@@ -723,6 +733,13 @@ class TheWalkingDatalog extends SubCommand implements Listener {
     public void onEntityDamageByEntityEvent(EntityDamageByEntityEvent e) {
         if(Globals.Ongoing != Globals.Gamemode.TWD) return;
 
+        if ((e.getDamager() instanceof Monster || e.getDamager() instanceof Boss || e.getDamager() instanceof Arrow || e.getDamager() instanceof WitherSkull) && e.getEntity() instanceof Player p){
+            if (getPlayerStatsFromPlayer(p).is_zombie){
+                e.setCancelled(true);
+                return;
+            }
+        }
+
         if (e.getEntity() instanceof Player && e.getDamager() instanceof Player) {
             Player target = (Player)e.getEntity();
             Player source = (Player)e.getDamager();
@@ -771,6 +788,7 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         PlayerStatsTWD playerStats = getPlayerStatsFromPlayer(e.getEntity());
         if (playerStats != null) {
             playerStats.is_zombie = true;
+            playerStats.stregdollars = 0;
             playerStats.deaths++;
         }
 
@@ -795,20 +813,24 @@ class TheWalkingDatalog extends SubCommand implements Listener {
         int points = 0;
         if (e.getEntity() instanceof Zombie) {
             points += zombie_base_points;
+            zombies_on_map--;
         }
         if (e.getEntity() instanceof Skeleton) {
             points += skeleton_base_points;
+            skeletons_on_map--;
         }
         if (e.getEntity() instanceof Blaze) {
             points += blaze_base_points;
+            blazes_on_map--;
         }
         if (e.getEntity() instanceof Wither) {
             points += wither_base_points;
+            withers_on_map--;
         }
 
         if(e.getEntity().getKiller() != null) {
             PlayerStatsTWD killerStats = getPlayerStatsFromPlayer(e.getEntity().getKiller());
-            if (killerStats != null) {
+            if (killerStats != null && !killerStats.is_zombie) {
                 killerStats.mobs_killed++;
                 killerStats.stregdollars += points;
                 updateScoreboard(killerStats);

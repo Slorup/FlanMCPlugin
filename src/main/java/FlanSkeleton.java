@@ -34,7 +34,6 @@ public class FlanSkeleton {
         //TODO: Set stuff here
         this.nms_entity.drops = new ArrayList<>(){};
         this.nms_entity.expToDrop = 0;
-//        this.nms_entity.targetSelector.removeAllGoals();
 //        this.nms_entity.goalSelector.removeAllGoals();
         this.nms_entity.getAttribute(Attributes.FOLLOW_RANGE).setBaseValue(100.0D);
 //
@@ -43,7 +42,8 @@ public class FlanSkeleton {
 ////        this.nms_entity.goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this.nms_entity, 1.0D));
 //        this.nms_entity.goalSelector.addGoal(6, new LookAtPlayerGoal(this.nms_entity, Player.class, 8.0F));
 //        this.nms_entity.goalSelector.addGoal(6, new RandomLookAroundGoal(this.nms_entity));
-//        this.nms_entity.targetSelector.addGoal(1, new HurtByTargetGoal(this.nms_entity, new Class[0]));
+        this.nms_entity.targetSelector.removeAllGoals();
+        this.nms_entity.targetSelector.addGoal(1, new HurtByTargetGoal(this.nms_entity, new Class[0]));
         this.nms_entity.targetSelector.addGoal(2, new NearestAttackableTargetLongGoal(this.nms_entity, Player.class, false));
     }
 

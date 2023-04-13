@@ -12,6 +12,8 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.AABB;
 import org.bukkit.event.entity.EntityTargetEvent.TargetReason;
 
+import static net.minecraft.world.item.Items.ZOMBIE_HEAD;
+
 public class NearestAttackableTargetLongGoal<T extends LivingEntity> extends TargetGoal {
     private static final int DEFAULT_RANDOM_INTERVAL = 10;
     protected final Class<T> targetType;
